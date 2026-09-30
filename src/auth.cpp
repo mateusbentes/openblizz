@@ -117,8 +117,8 @@ std::optional<AgentSession> probe_agent(const AuthOptions& options, const std::s
         reason = "no Battle.net prefix was provided";
         return std::nullopt;
     }
-    if (battle_net_executable(options.prefix).empty()) {
-        reason = "Battle.net.exe was not found in the supplied prefix";
+    if (!std::filesystem::exists(options.prefix)) {
+        reason = "the supplied Battle.net prefix does not exist";
         return std::nullopt;
     }
 
