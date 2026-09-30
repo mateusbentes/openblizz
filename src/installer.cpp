@@ -155,24 +155,32 @@ bool Installer::install_one(const InstallPlan& plan, const InstallEntry& entry,
     if (mapping == plan.mappings.end()) {
         throw std::runtime_error("encoding index has no entry for content key " + entry.content_key);
     }
-    const auto encoding_key = mapping->second.encoding_key;
-    auto data = content(plan.cdn, encoding_key);
-    const auto valid = [&]() {
-        return data.size() == entry.file_size && md5_hex(data) == entry.content_key;
-    };
-    if (!valid()) {
-        // A stale or interrupted decoded cache entry must not make every
-        // future repair fail. Remove it and retry the authoritative CDN blob.
-        std::error_code error;
-        std::filesystem::remove(cache_path(encoding_key), error);
-        data = content(plan.cdn, encoding_key);
+    auto encoding_keys = mapping->second.encoding_keys;
+    if (encoding_keys.empty()) encoding_keys.push_back(mapping->second.encoding_key);
+
+    std::vector<std::uint8_t> data;
+    std::string last_error;
+    bool found = false;
+    for (const auto& encoding_key : encoding_keys) {
+        try {
+            auto candidate = content(plan.cdn, encoding_key);
+            if (candidate.size() == entry.file_size && md5_hex(candidate) == entry.content_key) {
+                data = std::move(candidate);
+                found = true;
+                break;
+            }
+            std::error_code error;
+            std::filesystem::remove(cache_path(encoding_key), error);
+            last_error = "decoded size or content hash mismatch for EKey " + encoding_key;
+        } catch (const std::exception& error) {
+            last_error = error.what();
+        }
     }
-    if (data.size() != entry.file_size) {
-        throw std::runtime_error("decoded size mismatch for " + entry.path +
-                                 ": expected " + std::to_string(entry.file_size) +
-                                 ", got " + std::to_string(data.size()));
+    if (!found) {
+        throw std::runtime_error("no usable encoding object for " + entry.path +
+                                 " after trying " + std::to_string(encoding_keys.size()) +
+                                 " EKeys: " + last_error);
     }
-    if (md5_hex(data) != entry.content_key) throw std::runtime_error("content hash mismatch for " + entry.path);
 
     write_atomic(output, data);
     return true;

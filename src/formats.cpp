@@ -364,9 +364,13 @@ EncodingIndex EncodingIndex::parse(const std::vector<std::uint8_t>& decoded) {
             offset += 5;
             const auto ckey = hex_bytes(decoded.data() + offset, ckey_size);
             offset += ckey_size;
-            const auto ekey = hex_bytes(decoded.data() + offset, ekey_size);
-            offset += static_cast<std::size_t>(count) * ekey_size;
-            index.mappings_.try_emplace(ckey, FileMapping{ekey, decoded_size});
+            std::vector<std::string> ekeys;
+            ekeys.reserve(count);
+            for (std::uint8_t key = 0; key < count; ++key) {
+                ekeys.push_back(hex_bytes(decoded.data() + offset, ekey_size));
+                offset += ekey_size;
+            }
+            index.mappings_.try_emplace(ckey, FileMapping{ekeys.front(), decoded_size, std::move(ekeys)});
         }
     }
     return index;

@@ -16,6 +16,16 @@ void put_u32(std::vector<std::uint8_t>& data, std::uint32_t value) {
     data.push_back(static_cast<std::uint8_t>(value));
 }
 
+void put_u16(std::vector<std::uint8_t>& data, std::uint16_t value) {
+    data.push_back(static_cast<std::uint8_t>(value >> 8));
+    data.push_back(static_cast<std::uint8_t>(value));
+}
+
+void put_u40(std::vector<std::uint8_t>& data, std::uint64_t value) {
+    data.push_back(static_cast<std::uint8_t>(value >> 32));
+    put_u32(data, static_cast<std::uint32_t>(value));
+}
+
 std::vector<std::uint8_t> single_chunk(const std::string& payload) {
     std::vector<std::uint8_t> encoded{'B', 'L', 'T', 'E', 0, 0, 0, 0, 'N'};
     encoded.insert(encoded.end(), payload.begin(), payload.end());
@@ -70,6 +80,24 @@ int main() {
     assert(parsed.entries.size() == 1);
     assert(parsed.entries.front().path == "a.b");
     assert(parsed.entries.front().file_size == 4);
+
+    std::vector<std::uint8_t> encoding{'E','N',1,16,16};
+    put_u16(encoding, 1);
+    put_u16(encoding, 1);
+    put_u32(encoding, 1);
+    put_u32(encoding, 1);
+    encoding.push_back(0); // flags
+    put_u32(encoding, 0); // ESpec block size
+    encoding.resize(22 + 32 + 1024 + 32 + 1024, 0);
+    auto offset = static_cast<std::size_t>(22 + 32);
+    encoding[offset++] = 2; // two equivalent EKeys
+    put_u40(encoding, 4);
+    for (std::uint8_t i = 0; i < 16; ++i) encoding[offset++] = i;
+    for (std::uint8_t i = 0; i < 16; ++i) encoding[offset++] = static_cast<std::uint8_t>(0x10 + i);
+    for (std::uint8_t i = 0; i < 16; ++i) encoding[offset++] = static_cast<std::uint8_t>(0x20 + i);
+    const auto parsed_encoding = openblizz::EncodingIndex::parse(encoding);
+    assert(parsed_encoding.mappings().size() == 1);
+    assert(parsed_encoding.mappings().begin()->second.encoding_keys.size() == 2);
 
     std::cout << "OpenBlizz core tests passed\n";
     return 0;

@@ -114,6 +114,7 @@ struct DownloadManifest {
 struct FileMapping {
     std::string encoding_key;
     std::uint64_t decoded_size{};
+    std::vector<std::string> encoding_keys;
 };
 
 struct InstallPlan {
