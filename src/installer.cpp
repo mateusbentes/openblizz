@@ -137,8 +137,20 @@ std::vector<std::uint8_t> Installer::content(const CdnInfo& cdn, const std::stri
     return decoded;
 }
 
-void Installer::install_one(const InstallPlan& plan, const InstallEntry& entry,
+bool Installer::install_one(const InstallPlan& plan, const InstallEntry& entry,
                             const std::filesystem::path& directory) const {
+    const auto output = directory / safe_relative_path(entry.path);
+    if (std::filesystem::exists(output)) {
+        try {
+            const auto existing = read_file(output);
+            if (existing.size() == entry.file_size && md5_hex(existing) == entry.content_key) {
+                return false;
+            }
+        } catch (const std::exception&) {
+            // Treat unreadable or incomplete destinations as missing and repair them.
+        }
+    }
+
     const auto mapping = plan.mappings.find(entry.content_key);
     if (mapping == plan.mappings.end()) {
         throw std::runtime_error("encoding index has no entry for content key " + entry.content_key);
@@ -162,8 +174,8 @@ void Installer::install_one(const InstallPlan& plan, const InstallEntry& entry,
     }
     if (md5_hex(data) != entry.content_key) throw std::runtime_error("content hash mismatch for " + entry.path);
 
-    const auto output = directory / safe_relative_path(entry.path);
     write_atomic(output, data);
+    return true;
 }
 
 std::size_t Installer::install(const InstallPlan& plan, const std::filesystem::path& directory,
@@ -180,11 +192,12 @@ std::size_t Installer::install(const InstallPlan& plan, const std::filesystem::p
             while (true) {
                 const auto index = next.fetch_add(1);
                 if (index >= plan.selected_entries.size()) break;
-                install_one(plan, plan.selected_entries[index], directory);
+                const auto downloaded = install_one(plan, plan.selected_entries[index], directory);
                 const auto done = completed.fetch_add(1) + 1;
                 std::lock_guard lock(failure_mutex);
                 std::cout << "[" << done << "/" << plan.selected_entries.size() << "] "
-                          << plan.selected_entries[index].path << '\n';
+                          << plan.selected_entries[index].path
+                          << (downloaded ? "" : " (already verified)") << '\n';
             }
         } catch (...) {
             std::lock_guard lock(failure_mutex);

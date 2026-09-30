@@ -34,8 +34,8 @@ private:
     [[nodiscard]] std::filesystem::path cache_path(const std::string& hash) const;
     [[nodiscard]] std::vector<std::uint8_t> content(const CdnInfo& cdn,
                                                     const std::string& encoding_key) const;
-    void install_one(const InstallPlan& plan, const InstallEntry& entry,
-                     const std::filesystem::path& directory) const;
+    [[nodiscard]] bool install_one(const InstallPlan& plan, const InstallEntry& entry,
+                                   const std::filesystem::path& directory) const;
 
     Catalog& catalog_;
     std::filesystem::path cache_root_;
