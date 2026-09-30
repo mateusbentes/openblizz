@@ -428,9 +428,8 @@ int AuthManager::oauth_login(const AuthOptions& options) {
     if (data.state.empty()) throw std::runtime_error("OAuth callback did not contain state");
     if (data.state != state) throw std::runtime_error("OAuth state mismatch");
 
-    const auto form = "grant_type=authorization_code&code=" + url_encode(data.code) +
-                      "&redirect_uri=" + url_encode(options.oauth_redirect_uri) +
-                      "&client_id=" + url_encode(options.oauth_client_id);
+    const auto form = "grant_type=authorization_code&auth_flow=auth_code&code=" + url_encode(data.code) +
+                      "&redirect_uri=" + url_encode(options.oauth_redirect_uri);
     const auto basic = base64(options.oauth_client_id + ":" + options.oauth_client_secret);
     HttpClient http;
     const auto token_response = http.post("https://oauth.battle.net/token", form, {

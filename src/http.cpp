@@ -164,8 +164,10 @@ HttpResponse HttpClient::post(const std::string& url, const std::string& body,
     curl_easy_cleanup(curl);
 
     if (response.status < 200 || response.status >= 300) {
+        auto detail = std::string(reinterpret_cast<const char*>(response.body.data()), response.body.size());
+        if (detail.size() > 512) detail.resize(512);
         throw std::runtime_error("HTTP POST returned status " + std::to_string(response.status) +
-                                 " for " + url);
+                                 " for " + url + (detail.empty() ? std::string{} : "; response: " + detail));
     }
     return response;
 }
