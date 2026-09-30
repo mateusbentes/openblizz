@@ -29,6 +29,8 @@ Usage:
   openblizz repair <product> --directory DIR --prefix PREFIX [--region us] [--locale enUS] [--jobs 4]
   openblizz login --prefix PREFIX [--proton GE-Proton] [--installer Battle.net-Setup.exe]
   openblizz auth-status --prefix PREFIX
+  openblizz agent-info --prefix PREFIX [--product PRODUCT]
+  openblizz account [--token-env OPENBLIZZ_OAUTH_TOKEN]
   openblizz launch --directory DIR --exe GAME.exe [--prefix PREFIX]
                    [--backend proton|umu|wine|native] [--proton GE-Proton]
 
@@ -104,6 +106,19 @@ int main(int argc, char** argv) {
                 std::cout << product.id << "\t" << product.name << '\n';
             }
             return 0;
+        }
+
+        if (command == "account") {
+            ob::AuthOptions auth;
+            const auto token_env = option(args, "--token-env", "OPENBLIZZ_OAUTH_TOKEN");
+            if (const auto* token = std::getenv(token_env.c_str()); token != nullptr) auth.oauth_token = token;
+            return ob::AuthManager::account(auth);
+        }
+
+        if (command == "agent-info") {
+            ob::AuthOptions auth;
+            auth.prefix = option(args, "--prefix");
+            return ob::AuthManager::agent_info(auth, option(args, "--product"));
         }
 
         if (command == "login" || command == "auth-status") {

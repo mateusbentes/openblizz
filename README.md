@@ -37,6 +37,9 @@ List the Warcraft products known by the current catalog:
 ./build/openblizz products
 ```
 
+This is the public supported Warcraft catalog, not an account inventory. It
+must not be interpreted as a list of games owned by the logged-in user.
+
 Read the current build and CDN metadata:
 
 ```bash
@@ -65,6 +68,16 @@ Authenticate through the official Battle.net application without entering creden
 ```bash
 ./build/openblizz login --prefix "$HOME/Games/openblizz/battlenet"
 ./build/openblizz auth-status --prefix "$HOME/Games/openblizz/battlenet"
+./build/openblizz agent-info --prefix "$HOME/Games/openblizz/battlenet" --product w3
+```
+
+The documented Blizzard OAuth `/userinfo` endpoint can identify an account
+when an access token from a registered OAuth client is supplied in memory:
+
+```bash
+export OPENBLIZZ_OAUTH_TOKEN='do-not-save-this-in-the-repository'
+./build/openblizz account
+unset OPENBLIZZ_OAUTH_TOKEN
 ```
 
 Run a Windows game executable through Proton/umu:
@@ -91,6 +104,11 @@ API, so OpenBlizz does not claim that a local file or version response alone
 proves ownership. The official Agent remains the authority and may reject a
 product operation. This is safer than collecting credentials or silently
 downloading an unowned product.
+
+The public OAuth documentation currently lists `/userinfo` and World of
+Warcraft profile resources for user-authorized requests. It does not list an
+owned-games, entitlement, installer, or download endpoint. OpenBlizz therefore
+does not scrape private Battle.net account pages or invent an account inventory.
 
 ## Technical sources
 

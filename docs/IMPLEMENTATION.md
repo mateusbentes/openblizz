@@ -20,6 +20,13 @@ not define a third-party entitlement API, so the official Agent remains the
 authority and can reject an operation; OpenBlizz does not pretend a local
 file proves ownership.
 
+`openblizz account` consumes a caller-supplied OAuth bearer token only from an
+environment variable and calls the documented `https://oauth.battle.net/userinfo`
+endpoint. `openblizz agent-info` reports a recursively redacted `/agent`
+response and can query `/version/<product>` for troubleshooting. Neither
+command stores tokens. The `products` command is intentionally a supported
+public catalog, not an account-owned inventory.
+
 The current format implementation targets the public IN/DL/EN manifest path.
 Products that expose only TVFS/VFS mappings or encrypted content must fail
 loudly with a capability error until their fixtures and key-handling provider
