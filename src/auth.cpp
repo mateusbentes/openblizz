@@ -1,4 +1,5 @@
 #include "openblizz/auth.hpp"
+#include "openblizz/formats.hpp"
 #include "openblizz/http.hpp"
 
 #include <nlohmann/json.hpp>
@@ -26,6 +27,21 @@ std::string shell_quote(const std::string& value) {
     }
     quoted.push_back('\'');
     return quoted;
+}
+
+bool command_available(const std::string& command) {
+    const auto* path_value = std::getenv("PATH");
+    if (path_value == nullptr) return false;
+#if defined(_WIN32)
+    constexpr char separator = ';';
+#else
+    constexpr char separator = ':';
+#endif
+    for (const auto& directory : split(std::string(path_value), separator)) {
+        if (directory.empty()) continue;
+        if (std::filesystem::exists(std::filesystem::path(directory) / command)) return true;
+    }
+    return false;
 }
 
 std::filesystem::path battle_net_executable(const std::filesystem::path& prefix) {
@@ -168,9 +184,35 @@ int AuthManager::login(const AuthOptions& options) {
             "Battle.net is not installed in this prefix; pass the official installer with --installer");
     }
 
-    const auto command = "WINEPREFIX=" + shell_quote(options.prefix.string()) +
-                         " PROTONPATH=" + shell_quote(options.proton_path) +
-                         " GAMEID='umu-battlenet' umu-run " + shell_quote(target.string());
+    auto backend = options.backend;
+    if (backend == "auto") {
+        if (command_available("umu-run")) backend = "umu";
+        else if (command_available("wine")) backend = "wine";
+        else {
+            throw std::runtime_error(
+                "no Windows runtime found: install umu-launcher for Proton or install Wine; "
+                "see https://github.com/Open-Wine-Components/umu-launcher");
+        }
+    }
+
+    std::string command;
+    if (backend == "umu" || backend == "proton") {
+        if (!command_available("umu-run")) {
+            throw std::runtime_error(
+                "umu-run was not found; install umu-launcher or use --backend wine");
+        }
+        command = "WINEPREFIX=" + shell_quote(options.prefix.string()) +
+                  " PROTONPATH=" + shell_quote(options.proton_path) +
+                  " GAMEID='umu-battlenet' umu-run " + shell_quote(target.string());
+    } else if (backend == "wine") {
+        if (!command_available("wine")) {
+            throw std::runtime_error("wine was not found; install Wine or use --backend umu");
+        }
+        command = "WINEPREFIX=" + shell_quote(options.prefix.string()) +
+                  " wine " + shell_quote(target.string());
+    } else {
+        throw std::runtime_error("unknown login backend: " + backend + " (expected auto, umu, or wine)");
+    }
     std::cout << "Opening the official Battle.net UI. Complete login and MFA there.\n";
     std::cout << "OpenBlizz does not receive or store your password.\n";
     return std::system(command.c_str());

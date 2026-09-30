@@ -71,6 +71,11 @@ Authenticate through the official Battle.net application without entering creden
 ./build/openblizz agent-info --prefix "$HOME/Games/openblizz/battlenet" --product w3
 ```
 
+Login uses `--backend auto` by default: it prefers `umu-run` for Proton and
+falls back to `wine` when `umu-run` is unavailable. To use Proton explicitly,
+install [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher)
+and keep `--backend umu`; to use system Wine, pass `--backend wine`.
+
 The documented Blizzard OAuth `/userinfo` endpoint can identify an account
 when an access token from a registered OAuth client is supplied in memory:
 

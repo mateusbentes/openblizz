@@ -8,6 +8,7 @@ namespace openblizz {
 struct AuthOptions {
     std::filesystem::path prefix;
     std::string proton_path{"GE-Proton"};
+    std::string backend{"auto"};
     std::filesystem::path installer;
     std::string oauth_token;
 };

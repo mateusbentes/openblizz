@@ -27,7 +27,7 @@ Usage:
   openblizz update <product> --directory DIR --prefix PREFIX [--region us] [--locale enUS] [--jobs 4]
   openblizz verify <product> --directory DIR [--region us] [--locale enUS]
   openblizz repair <product> --directory DIR --prefix PREFIX [--region us] [--locale enUS] [--jobs 4]
-  openblizz login --prefix PREFIX [--proton GE-Proton] [--installer Battle.net-Setup.exe]
+  openblizz login --prefix PREFIX [--backend auto|umu|wine] [--proton GE-Proton] [--installer Battle.Net-Setup.exe]
   openblizz auth-status --prefix PREFIX
   openblizz agent-info --prefix PREFIX [--product PRODUCT]
   openblizz account [--token-env OPENBLIZZ_OAUTH_TOKEN]
@@ -125,6 +125,7 @@ int main(int argc, char** argv) {
             ob::AuthOptions auth;
             auth.prefix = option(args, "--prefix");
             auth.proton_path = option(args, "--proton", "GE-Proton");
+            auth.backend = option(args, "--backend", "auto");
             auth.installer = option(args, "--installer");
             return command == "login" ? ob::AuthManager::login(auth) : ob::AuthManager::status(auth);
         }
