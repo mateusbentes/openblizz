@@ -1,0 +1,53 @@
+# Build systems
+/build/
+/build-*/
+/cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CTestTestfile.cmake
+cmake_install.cmake
+install_manifest.txt
+Makefile
+compile_commands.json
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# OpenBlizz runtime data
+.openblizz/
+openblizz-data/
+cache/
+logs/
+tokens/
+*.token
+*.session
+*.lock
+
+# Game data and proprietary content
+Games/
+games/
+WorldOfWarcraft/
+Warcraft*/
+*.casc
+*.idx
+*.data
+*.archive
+*.blte
+*.manifest
+*.part
+
+# Test/runtime output
+coverage/
+*.log
+*.tmp
+*.core
+
+# Local credentials and environment
+.env
+.env.*
+credentials.json
+secrets.json

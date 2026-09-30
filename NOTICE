@@ -1,0 +1,11 @@
+OpenBlizz is an independent project and is not affiliated with, endorsed by,
+or sponsored by Blizzard Entertainment.
+
+This repository contains source code only. It does not contain Blizzard's
+Battle.net client, Agent.exe, game binaries, game assets, authentication
+secrets, or private cryptographic keys.
+
+Warcraft, Warcraft III, Warcraft II, Warcraft I and Battle.net are trademarks
+or product names of Blizzard Entertainment or its respective owners. They are
+used only to identify the products with which this independent client is
+intended to interoperate.
