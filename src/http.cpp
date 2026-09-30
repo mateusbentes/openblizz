@@ -132,6 +132,44 @@ HttpResponse HttpClient::get(const std::string& url,
     return response;
 }
 
+HttpResponse HttpClient::post(const std::string& url, const std::string& body,
+                              const std::vector<std::string>& headers) const {
+    (void)impl_;
+    CURL* curl = curl_easy_init();
+    if (curl == nullptr) throw std::runtime_error("curl_easy_init failed");
+
+    HttpResponse response;
+    configure(curl, url, headers);
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.data());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(body.size()));
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_memory);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_callback);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &response.headers);
+
+    const auto result = curl_easy_perform(curl);
+    if (result != CURLE_OK) {
+        free_headers(curl);
+        const std::string message = curl_easy_strerror(result);
+        curl_easy_cleanup(curl);
+        throw std::runtime_error("HTTP POST failed for " + url + ": " + message);
+    }
+
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.status);
+    char* effective = nullptr;
+    curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &effective);
+    if (effective != nullptr) response.effective_url = effective;
+    free_headers(curl);
+    curl_easy_cleanup(curl);
+
+    if (response.status < 200 || response.status >= 300) {
+        throw std::runtime_error("HTTP POST returned status " + std::to_string(response.status) +
+                                 " for " + url);
+    }
+    return response;
+}
+
 void HttpClient::get_to_file(const std::string& url, const std::string& path,
                              const std::vector<std::string>& headers) const {
     (void)impl_;

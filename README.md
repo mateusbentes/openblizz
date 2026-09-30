@@ -53,31 +53,54 @@ Inspect the current build manifests without downloading game content:
 ./build/openblizz plan w3 --region us --locale enUS
 ```
 
-After signing in through the official UI, an authenticated download is
-explicitly tied to the local Battle.net Agent session:
+Authenticate directly through the official Battle.net OAuth page. Create an
+OAuth client in the Blizzard Developer Portal, register its HTTPS redirect URI,
+and keep the client secret outside the repository:
 
 ```bash
-./build/openblizz install w3 \
-  --prefix "$HOME/Games/openblizz/battlenet" \
-  --directory "$HOME/Games/Warcraft3" \
-  --region us --locale enUS --jobs 4
+export OPENBLIZZ_CLIENT_SECRET='your-client-secret'
+./build/openblizz login \
+  --client-id 'your-client-id' \
+  --redirect-uri 'https://your.example/callback' \
+  --scope openid
+unset OPENBLIZZ_CLIENT_SECRET
 ```
 
-Authenticate through the official Battle.net application without entering credentials into OpenBlizz:
+OpenBlizz opens the authorization URL, then asks you to paste the callback URL
+from the browser. The resulting access token is stored at
+`~/.config/openblizz/oauth-token.json` with owner-only permissions. The client
+secret is never stored by OpenBlizz.
+
+The legacy Battle.net UI remains available only as an optional fallback:
 
 ```bash
-./build/openblizz login --prefix "$HOME/Games/openblizz/battlenet"
+./build/openblizz agent-login \
+  --prefix "$HOME/Games/openblizz/battlenet" \
+  --backend auto
 ./build/openblizz auth-status --prefix "$HOME/Games/openblizz/battlenet"
 ./build/openblizz agent-info --prefix "$HOME/Games/openblizz/battlenet" --product w3
 ```
 
-Login uses `--backend auto` by default: it prefers `umu-run` for Proton and
-falls back to `wine` when `umu-run` is unavailable. To use Proton explicitly,
-install [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher)
-and keep `--backend umu`; to use system Wine, pass `--backend wine`.
+After OAuth login, inspect the authenticated identity:
 
-The documented Blizzard OAuth `/userinfo` endpoint can identify an account
-when an access token from a registered OAuth client is supplied in memory:
+```bash
+./build/openblizz account
+```
+
+The native installer can use the OAuth identity without starting Battle.net:
+
+```bash
+./build/openblizz install w3 \
+  --directory "$HOME/Games/Warcraft3" \
+  --locale enUS --jobs 4
+```
+
+This verifies the OAuth identity and downloads public TACT/NGDP content. Since
+Blizzard does not document a public entitlement endpoint, OpenBlizz prints a
+warning and does not claim that ownership was independently verified.
+
+For a one-off token, an environment variable can be used instead of the token
+file:
 
 ```bash
 export OPENBLIZZ_OAUTH_TOKEN='do-not-save-this-in-the-repository'
@@ -97,12 +120,14 @@ Run a Windows game executable through Proton/umu:
 
 ## Authentication boundary
 
-OpenBlizz never asks for or stores a Battle.net password. The Linux backend
-opens the official Battle.net client through `umu-run`/Wine so the user can
-complete login and MFA in the official UI. Before `install`, `update`, or
-`repair`, OpenBlizz probes the local Agent on localhost, obtains its ephemeral
-authorization in memory, and checks the requested product version endpoint.
-If no authenticated Agent session is found, the operation is refused.
+OpenBlizz never asks for or stores a Battle.net password. The primary login
+opens the official OAuth page in the user's browser, validates the callback
+state, exchanges the one-time code through `/token`, and calls `/userinfo`.
+The local Battle.net UI and Agent are not required for this identity flow.
+
+The local Battle.net UI and Agent are also not required for the OAuth-backed
+installer. The Agent remains an optional compatibility path when its private
+local authority is needed.
 
 The public Agent protocol does not expose a documented third-party entitlement
 API, so OpenBlizz does not claim that a local file or version response alone

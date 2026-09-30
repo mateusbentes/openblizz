@@ -11,21 +11,26 @@ keys. `Installer` selects Windows/x86_64/locale/Release tags, downloads
 objects into a content-addressed cache, writes atomically through `.part`
 files, verifies MD5 content keys, and repairs missing or corrupted files.
 
-Authentication is deliberately a hand-off to the official Battle.net UI in a
-user-controlled Proton/Wine prefix. Before content-changing operations,
-OpenBlizz probes the local Agent `/agent` endpoint, keeps the returned
-authorization token only in memory, and checks `/version/<uid>`. OpenBlizz
-does not collect passwords or MFA values. Blizzard's public documentation does
-not define a third-party entitlement API, so the official Agent remains the
-authority and can reject an operation; OpenBlizz does not pretend a local
+OAuth is the primary authentication path. `oauth-login` opens the official
+Battle.net authorization page, validates the state returned to a manually
+pasted callback, exchanges the one-time code at `/token`, stores only the
+short-lived access token in an owner-only file, and calls `/userinfo`. It never
+collects a password or MFA value. The local Battle.net UI and Proton are not
+required for this flow.
+
+The Battle.net Agent remains an optional legacy fallback for installation
+operations that need its local authority. OpenBlizz probes `/agent`, keeps its
+authorization token only in memory, and can check `/version/<uid>`. Blizzard's
+public documentation does not define a third-party entitlement API, so the
+Agent remains the authority when it is used; OpenBlizz does not pretend a local
 file proves ownership.
 
-`openblizz account` consumes a caller-supplied OAuth bearer token only from an
-environment variable and calls the documented `https://oauth.battle.net/userinfo`
-endpoint. `openblizz agent-info` reports a recursively redacted `/agent`
-response and can query `/version/<product>` for troubleshooting. Neither
-command stores tokens. The `products` command is intentionally a supported
-public catalog, not an account-owned inventory.
+`openblizz account` consumes a bearer token from the owner-only OAuth token file
+or an environment variable and calls the documented
+`https://oauth.battle.net/userinfo` endpoint. `openblizz agent-info` reports a
+recursively redacted `/agent` response and can query `/version/<product>` for
+troubleshooting. The `products` command is intentionally a supported public
+catalog, not an account-owned inventory.
 
 The current format implementation targets the public IN/DL/EN manifest path.
 Products that expose only TVFS/VFS mappings or encrypted content must fail

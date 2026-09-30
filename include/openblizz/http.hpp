@@ -23,6 +23,8 @@ public:
 
     [[nodiscard]] HttpResponse get(const std::string& url,
                                    const std::vector<std::string>& headers = {}) const;
+    [[nodiscard]] HttpResponse post(const std::string& url, const std::string& body,
+                                    const std::vector<std::string>& headers = {}) const;
     void get_to_file(const std::string& url, const std::string& path,
                      const std::vector<std::string>& headers = {}) const;
 

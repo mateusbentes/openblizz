@@ -23,19 +23,22 @@ Usage:
   openblizz versions <product> [--region us]
   openblizz cdns <product> [--region us]
   openblizz plan <product> [--region us] [--locale enUS]
-  openblizz install <product> --directory DIR --prefix PREFIX [--region us] [--locale enUS] [--jobs 4] [--limit N]
-  openblizz update <product> --directory DIR --prefix PREFIX [--region us] [--locale enUS] [--jobs 4]
+  openblizz install <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS] [--jobs 4] [--limit N]
+  openblizz update <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS] [--jobs 4]
   openblizz verify <product> --directory DIR [--region us] [--locale enUS]
-  openblizz repair <product> --directory DIR --prefix PREFIX [--region us] [--locale enUS] [--jobs 4]
-  openblizz login --prefix PREFIX [--backend auto|umu|wine] [--proton GE-Proton] [--installer Battle.Net-Setup.exe]
+  openblizz repair <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS] [--jobs 4]
+  openblizz login --client-id ID --redirect-uri URI [--scope openid] [--secret-env ENV]
+                  [--token-file PATH]
+  openblizz agent-login --prefix PREFIX [--backend auto|umu|wine] [--proton GE-Proton]
+                        [--installer Battle.Net-Setup.exe]
   openblizz auth-status --prefix PREFIX
   openblizz agent-info --prefix PREFIX [--product PRODUCT]
   openblizz account [--token-env OPENBLIZZ_OAUTH_TOKEN]
   openblizz launch --directory DIR --exe GAME.exe [--prefix PREFIX]
                    [--backend proton|umu|wine|native] [--proton GE-Proton]
 
-The login command opens the official Battle.net UI and never asks OpenBlizz
-for a password or MFA code.
+The login command authenticates in the browser through official Battle.net OAuth.
+The agent-login command is the optional legacy Battle.net UI fallback.
 )";
 }
 
@@ -112,6 +115,7 @@ int main(int argc, char** argv) {
             ob::AuthOptions auth;
             const auto token_env = option(args, "--token-env", "OPENBLIZZ_OAUTH_TOKEN");
             if (const auto* token = std::getenv(token_env.c_str()); token != nullptr) auth.oauth_token = token;
+            auth.oauth_token_file = option(args, "--token-file");
             return ob::AuthManager::account(auth);
         }
 
@@ -121,13 +125,30 @@ int main(int argc, char** argv) {
             return ob::AuthManager::agent_info(auth, option(args, "--product"));
         }
 
-        if (command == "login" || command == "auth-status") {
+        if (command == "login" || command == "oauth-login") {
+            ob::AuthOptions auth;
+            auth.oauth_client_id = option(args, "--client-id");
+            if (auth.oauth_client_id.empty()) {
+                if (const auto* value = std::getenv("OPENBLIZZ_CLIENT_ID"); value != nullptr) auth.oauth_client_id = value;
+            }
+            const auto secret_env = option(args, "--secret-env", "OPENBLIZZ_CLIENT_SECRET");
+            if (const auto* value = std::getenv(secret_env.c_str()); value != nullptr) auth.oauth_client_secret = value;
+            auth.oauth_redirect_uri = option(args, "--redirect-uri");
+            if (auth.oauth_redirect_uri.empty()) {
+                if (const auto* value = std::getenv("OPENBLIZZ_REDIRECT_URI"); value != nullptr) auth.oauth_redirect_uri = value;
+            }
+            auth.oauth_scope = option(args, "--scope", "openid");
+            auth.oauth_token_file = option(args, "--token-file");
+            return ob::AuthManager::oauth_login(auth);
+        }
+
+        if (command == "agent-login" || command == "auth-status") {
             ob::AuthOptions auth;
             auth.prefix = option(args, "--prefix");
             auth.proton_path = option(args, "--proton", "GE-Proton");
             auth.backend = option(args, "--backend", "auto");
             auth.installer = option(args, "--installer");
-            return command == "login" ? ob::AuthManager::login(auth) : ob::AuthManager::status(auth);
+            return command == "agent-login" ? ob::AuthManager::agent_login(auth) : ob::AuthManager::status(auth);
         }
 
         if (command == "launch") {
@@ -179,6 +200,9 @@ int main(int argc, char** argv) {
                 ob::AuthOptions auth;
                 auth.prefix = option(args, "--prefix");
                 auth.proton_path = option(args, "--proton", "GE-Proton");
+                auth.oauth_token_file = option(args, "--token-file");
+                const auto token_env = option(args, "--token-env", "OPENBLIZZ_OAUTH_TOKEN");
+                if (const auto* token = std::getenv(token_env.c_str()); token != nullptr) auth.oauth_token = token;
                 ob::AuthManager::require_authenticated(auth, product);
             }
             auto plan = make_plan(installer, product, args);
