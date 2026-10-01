@@ -33,6 +33,7 @@ private:
                                                             const std::string& locale) const;
     [[nodiscard]] std::filesystem::path cache_path(const std::string& hash) const;
     [[nodiscard]] std::vector<std::uint8_t> content(const CdnInfo& cdn,
+                                                    const std::unordered_map<std::string, ArchiveLocation>& archives,
                                                     const std::string& encoding_key) const;
     [[nodiscard]] bool install_one(const InstallPlan& plan, const InstallEntry& entry,
                                    const std::filesystem::path& directory) const;

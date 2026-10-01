@@ -6,10 +6,13 @@ runner layers.
 `Catalog` discovers current product versions and CDN hosts from Ribbit V2,
 then validates object hashes returned from the CDN. `BlteDecoder` supports the
 uncompressed, zlib and LZ4 block modes used by configuration and manifest
-objects. `EncodingIndex` resolves install-manifest content keys to encoding
-keys. `Installer` selects Windows/x86_64/locale/Release tags, downloads
-objects into a content-addressed cache, writes atomically through `.part`
-files, verifies MD5 content keys, and repairs missing or corrupted files.
+objects. `EncodingIndex` resolves install-manifest content keys to one or more
+encoding keys. `ArchiveIndex` resolves archive-backed encoding keys to offsets;
+the installer reads those BLTE ranges without downloading whole multi-hundred-
+megabyte archives. `Installer` selects Windows/x86_64/locale/Release tags,
+downloads objects into a content-addressed cache, writes atomically through
+`.part` files, verifies MD5 content keys, and repairs missing or corrupted
+files.
 
 OAuth is the primary authentication path. `oauth-login` opens the official
 Battle.net authorization page, validates the state returned to a manually
@@ -32,8 +35,9 @@ recursively redacted `/agent` response and can query `/version/<product>` for
 troubleshooting. The `products` command is intentionally a supported public
 catalog, not an account-owned inventory.
 
-The current format implementation targets the public IN/DL/EN manifest path.
-Products that expose only TVFS/VFS mappings or encrypted content must fail
-loudly with a capability error until their fixtures and key-handling provider
-are implemented. No game data is checked into this repository; fixtures must
-be synthetic or generated locally by the developer.
+The current format implementation targets the public IN/DL/EN manifest path,
+including CDN archive indexes and range reads. Products that expose only
+TVFS/VFS mappings or encrypted content must fail loudly with a capability
+error until their fixtures and key-handling provider are implemented. No game
+data is checked into this repository; fixtures must be synthetic or generated
+locally by the developer.

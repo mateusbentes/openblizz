@@ -16,6 +16,13 @@ void put_u32(std::vector<std::uint8_t>& data, std::uint32_t value) {
     data.push_back(static_cast<std::uint8_t>(value));
 }
 
+void put_u32le_at(std::vector<std::uint8_t>& data, std::size_t offset, std::uint32_t value) {
+    data[offset] = static_cast<std::uint8_t>(value);
+    data[offset + 1] = static_cast<std::uint8_t>(value >> 8);
+    data[offset + 2] = static_cast<std::uint8_t>(value >> 16);
+    data[offset + 3] = static_cast<std::uint8_t>(value >> 24);
+}
+
 void put_u16(std::vector<std::uint8_t>& data, std::uint16_t value) {
     data.push_back(static_cast<std::uint8_t>(value >> 8));
     data.push_back(static_cast<std::uint8_t>(value));
@@ -98,6 +105,28 @@ int main() {
     const auto parsed_encoding = openblizz::EncodingIndex::parse(encoding);
     assert(parsed_encoding.mappings().size() == 1);
     assert(parsed_encoding.mappings().begin()->second.encoding_keys.size() == 2);
+
+    std::vector<std::uint8_t> archive(4096 + 16 + 8 + 28, 0);
+    for (std::size_t i = 0; i < 16; ++i) archive[i] = static_cast<std::uint8_t>(0xa0 + i);
+    archive[18] = 0x12;
+    archive[19] = 0x34;
+    archive[20] = 1;
+    archive[21] = 2;
+    archive[22] = 3;
+    archive[23] = 4;
+    const auto footer = archive.size() - 28;
+    archive[footer + 8] = 1;
+    archive[footer + 11] = 4;
+    archive[footer + 12] = 4;
+    archive[footer + 13] = 4;
+    archive[footer + 14] = 16;
+    archive[footer + 15] = 8;
+    put_u32le_at(archive, footer + 16, 1);
+    const auto parsed_archive = openblizz::ArchiveIndex::parse(archive);
+    const auto* archive_entry = parsed_archive.find("a0a1a2a3a4a5a6a7a8a9aaabacadaeaf");
+    assert(archive_entry != nullptr);
+    assert(archive_entry->offset == 0x01020304);
+    assert(archive_entry->encoded_size == 0x1234);
 
     std::cout << "OpenBlizz core tests passed\n";
     return 0;

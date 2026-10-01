@@ -21,6 +21,14 @@ std::uint32_t u32(const std::vector<std::uint8_t>& data, std::size_t offset) {
            static_cast<std::uint32_t>(data[offset + 3]);
 }
 
+std::uint32_t u32le(const std::vector<std::uint8_t>& data, std::size_t offset) {
+    if (offset + 4 > data.size()) throw std::runtime_error("truncated little-endian u32");
+    return static_cast<std::uint32_t>(data[offset]) |
+           (static_cast<std::uint32_t>(data[offset + 1]) << 8) |
+           (static_cast<std::uint32_t>(data[offset + 2]) << 16) |
+           (static_cast<std::uint32_t>(data[offset + 3]) << 24);
+}
+
 std::uint16_t u16(const std::vector<std::uint8_t>& data, std::size_t offset) {
     if (offset + 2 > data.size()) throw std::runtime_error("truncated u16");
     return static_cast<std::uint16_t>((data[offset] << 8) | data[offset + 1]);
@@ -379,6 +387,69 @@ EncodingIndex EncodingIndex::parse(const std::vector<std::uint8_t>& decoded) {
 const FileMapping* EncodingIndex::find(const std::string& content_key) const {
     const auto it = mappings_.find(content_key);
     return it == mappings_.end() ? nullptr : &it->second;
+}
+
+ArchiveIndex ArchiveIndex::parse(const std::vector<std::uint8_t>& bytes) {
+    if (bytes.size() < 28) throw std::runtime_error("archive index is too small");
+
+    const auto footer_hash_bytes = bytes[bytes.size() - 13];
+    if (footer_hash_bytes == 0 || footer_hash_bytes > 16) {
+        throw std::runtime_error("invalid archive index footer hash size");
+    }
+    const auto footer_size = static_cast<std::size_t>(20 + footer_hash_bytes);
+    if (footer_size > bytes.size()) throw std::runtime_error("archive index footer exceeds file");
+    const auto footer = bytes.size() - footer_size;
+    const auto page_size = static_cast<std::size_t>(bytes[footer + 11]) * 1024;
+    const auto offset_bytes = bytes[footer + 12];
+    const auto size_bytes = bytes[footer + 13];
+    const auto ekey_bytes = bytes[footer + 14];
+    const auto element_count = u32le(bytes, footer + 16);
+    if (bytes[footer + 8] > 1 || bytes[footer + 9] != 0 || bytes[footer + 10] != 0 ||
+        page_size == 0 || page_size != 4096 || size_bytes != 4 || ekey_bytes == 0 ||
+        ekey_bytes > 16 || (offset_bytes != 4 && offset_bytes != 5)) {
+        throw std::runtime_error("unsupported archive index format");
+    }
+
+    const auto record_size = static_cast<std::size_t>(ekey_bytes) + size_bytes + offset_bytes;
+    const auto records_per_page = page_size / record_size;
+    if (records_per_page == 0) throw std::runtime_error("archive index record does not fit page");
+    const auto page_count = (static_cast<std::size_t>(element_count) + records_per_page - 1) /
+                            records_per_page;
+    const auto toc_size = page_count * (static_cast<std::size_t>(ekey_bytes) + footer_hash_bytes);
+    if (footer_size + toc_size > bytes.size()) throw std::runtime_error("archive index TOC exceeds file");
+    const auto data_size = bytes.size() - footer_size - toc_size;
+    if (page_count != 0 && data_size < (page_count - 1) * page_size) {
+        throw std::runtime_error("archive index data pages are truncated");
+    }
+
+    ArchiveIndex result;
+    for (std::size_t page = 0; page < page_count; ++page) {
+        const auto page_offset = page * page_size;
+        const auto page_length = std::min(page_size, data_size - page_offset);
+        std::size_t offset = page_offset;
+        const auto end = page_offset + page_length;
+        while (offset + record_size <= end) {
+            const auto key = hex_bytes(bytes.data() + offset, ekey_bytes);
+            const auto size = u32(bytes, offset + ekey_bytes);
+            const auto offset_field = offset + ekey_bytes + size_bytes;
+            bool all_zero = size == 0;
+            for (std::size_t i = 0; i < ekey_bytes; ++i) all_zero = all_zero && bytes[offset + i] == 0;
+            std::uint64_t archive_offset = 0;
+            for (std::size_t i = 0; i < offset_bytes; ++i) {
+                archive_offset = (archive_offset << 8) | bytes[offset_field + i];
+                all_zero = all_zero && bytes[offset_field + i] == 0;
+            }
+            if (all_zero) break;
+            result.entries_.try_emplace(key, ArchiveLocation{"", archive_offset, size});
+            offset += record_size;
+        }
+    }
+    return result;
+}
+
+const ArchiveLocation* ArchiveIndex::find(const std::string& encoding_key) const {
+    const auto it = entries_.find(encoding_key);
+    return it == entries_.end() ? nullptr : &it->second;
 }
 
 } // namespace openblizz

@@ -117,6 +117,12 @@ struct FileMapping {
     std::vector<std::string> encoding_keys;
 };
 
+struct ArchiveLocation {
+    std::string archive_key;
+    std::uint64_t offset{};
+    std::uint32_t encoded_size{};
+};
+
 struct InstallPlan {
     ProductDescriptor product;
     VersionInfo version;
@@ -125,6 +131,7 @@ struct InstallPlan {
     ConfigFile cdn_config;
     InstallManifest install_manifest;
     std::unordered_map<std::string, FileMapping> mappings;
+    std::unordered_map<std::string, ArchiveLocation> archive_entries;
     std::vector<InstallEntry> selected_entries;
     std::uint64_t total_bytes{};
 };

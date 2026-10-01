@@ -61,7 +61,9 @@ void configure(CURL* curl, const std::string& url,
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 20L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 300L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1024L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 30L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "OpenBlizz/0.1 (+independent-client)");
     curl_easy_setopt(curl, CURLOPT_FAILONERROR, 0L);
     curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
@@ -128,6 +130,49 @@ HttpResponse HttpClient::get(const std::string& url,
     if (response.status < 200 || response.status >= 300) {
         throw std::runtime_error("HTTP GET returned status " + std::to_string(response.status) +
                                  " for " + url);
+    }
+    return response;
+}
+
+HttpResponse HttpClient::get_range(const std::string& url, std::uint64_t offset,
+                                   std::uint32_t size,
+                                   const std::vector<std::string>& headers) const {
+    if (size == 0) throw std::runtime_error("HTTP Range request has zero size");
+    (void)impl_;
+    CURL* curl = curl_easy_init();
+    if (curl == nullptr) throw std::runtime_error("curl_easy_init failed");
+
+    HttpResponse response;
+    configure(curl, url, headers);
+    const auto range = std::to_string(offset) + "-" + std::to_string(offset + size - 1);
+    curl_easy_setopt(curl, CURLOPT_RANGE, range.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_memory);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_callback);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &response.headers);
+
+    const auto result = curl_easy_perform(curl);
+    if (result != CURLE_OK) {
+        free_headers(curl);
+        const std::string message = curl_easy_strerror(result);
+        curl_easy_cleanup(curl);
+        throw std::runtime_error("HTTP Range GET failed for " + url + ": " + message);
+    }
+
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.status);
+    char* effective = nullptr;
+    curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &effective);
+    if (effective != nullptr) response.effective_url = effective;
+    free_headers(curl);
+    curl_easy_cleanup(curl);
+
+    if (response.status < 200 || response.status >= 300) {
+        throw std::runtime_error("HTTP Range GET returned status " + std::to_string(response.status) +
+                                 " for " + url);
+    }
+    if (response.body.size() != size) {
+        throw std::runtime_error("HTTP Range GET returned " + std::to_string(response.body.size()) +
+                                 " bytes, expected " + std::to_string(size) + " for " + url);
     }
     return response;
 }

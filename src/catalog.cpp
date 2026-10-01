@@ -136,20 +136,20 @@ CdnInfo Catalog::select_cdn(const std::string& product, const std::string& regio
 }
 
 std::string Catalog::object_url(const CdnInfo& cdn, const std::string& kind,
-                                const std::string& hash) const {
+                                const std::string& hash, const std::string& suffix) const {
     if (!is_hex_hash(hash, 16)) throw std::runtime_error("invalid TACT object hash: " + hash);
     return "https://" + cdn.hosts.front() + "/" + cdn.path + "/" + kind + "/" +
-           hash.substr(0, 2) + "/" + hash.substr(2, 2) + "/" + hash;
+           hash.substr(0, 2) + "/" + hash.substr(2, 2) + "/" + hash + suffix;
 }
 
 HttpResponse Catalog::get_with_cdn_failover(const CdnInfo& cdn, const std::string& kind,
-                                            const std::string& hash) const {
+                                            const std::string& hash, const std::string& suffix) const {
     std::string last_error;
     for (const auto& host : cdn.hosts) {
         CdnInfo candidate = cdn;
         candidate.hosts = {host};
         try {
-            return http_.get(object_url(candidate, kind, hash));
+            return http_.get(object_url(candidate, kind, hash, suffix));
         } catch (const std::exception& error) {
             last_error = error.what();
         }
@@ -173,6 +173,28 @@ std::vector<std::uint8_t> Catalog::fetch_data(const CdnInfo& cdn, const std::str
 
 std::vector<std::uint8_t> Catalog::fetch_decoded_data(const CdnInfo& cdn, const std::string& hash) const {
     return BlteDecoder::decode(fetch_data(cdn, hash));
+}
+
+std::vector<std::uint8_t> Catalog::fetch_archive_index(const CdnInfo& cdn,
+                                                       const std::string& hash) const {
+    return get_with_cdn_failover(cdn, "data", hash, ".index").body;
+}
+
+std::vector<std::uint8_t> Catalog::fetch_archive_range(const CdnInfo& cdn,
+                                                       const std::string& hash,
+                                                       std::uint64_t offset,
+                                                       std::uint32_t size) const {
+    std::string last_error;
+    for (const auto& host : cdn.hosts) {
+        CdnInfo candidate = cdn;
+        candidate.hosts = {host};
+        try {
+            return http_.get_range(object_url(candidate, "data", hash), offset, size).body;
+        } catch (const std::exception& error) {
+            last_error = error.what();
+        }
+    }
+    throw std::runtime_error("all CDN hosts failed for archive " + hash + ": " + last_error);
 }
 
 const ProductDescriptor& find_product(const std::vector<ProductDescriptor>& products,

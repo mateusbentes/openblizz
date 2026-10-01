@@ -23,6 +23,10 @@ public:
 
     [[nodiscard]] HttpResponse get(const std::string& url,
                                    const std::vector<std::string>& headers = {}) const;
+    [[nodiscard]] HttpResponse get_range(const std::string& url,
+                                         std::uint64_t offset,
+                                         std::uint32_t size,
+                                         const std::vector<std::string>& headers = {}) const;
     [[nodiscard]] HttpResponse post(const std::string& url, const std::string& body,
                                     const std::vector<std::string>& headers = {}) const;
     void get_to_file(const std::string& url, const std::string& path,

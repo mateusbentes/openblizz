@@ -103,6 +103,21 @@ InstallPlan Installer::plan(const std::string& product, const std::string& regio
     result.build_config = parse_config(std::string(reinterpret_cast<const char*>(build_bytes.data()), build_bytes.size()));
     result.cdn_config = parse_config(std::string(reinterpret_cast<const char*>(cdn_bytes.data()), cdn_bytes.size()));
 
+    const auto archive_hashes = result.cdn_config.get("archives");
+    if (!archive_hashes.empty()) {
+        std::cout << "Loading " << archive_hashes.size() << " archive indexes.\n";
+        for (const auto& archive_hash : archive_hashes) {
+            const auto index_bytes = catalog_.fetch_archive_index(result.cdn, archive_hash);
+            const auto index = ArchiveIndex::parse(index_bytes);
+            for (const auto& [encoding_key, location] : index.entries()) {
+                auto archive_location = location;
+                archive_location.archive_key = archive_hash;
+                result.archive_entries.try_emplace(encoding_key, std::move(archive_location));
+            }
+        }
+        std::cout << "Archive index entries: " << result.archive_entries.size() << "\n";
+    }
+
     const auto install_pair = result.build_config.pair("install");
     if (!install_pair || install_pair->encoding_key.empty()) {
         throw std::runtime_error("product " + product + " has no install manifest in the current build");
@@ -127,11 +142,29 @@ std::filesystem::path Installer::cache_path(const std::string& hash) const {
     return cache_root_ / "objects" / hash.substr(0, 2) / hash.substr(2, 2) / hash;
 }
 
-std::vector<std::uint8_t> Installer::content(const CdnInfo& cdn, const std::string& encoding_key) const {
+std::vector<std::uint8_t> Installer::content(
+    const CdnInfo& cdn, const std::unordered_map<std::string, ArchiveLocation>& archives,
+    const std::string& encoding_key) const {
     const auto path = cache_path(encoding_key);
     if (std::filesystem::exists(path)) return read_file(path);
 
-    const auto encoded = catalog_.fetch_data(cdn, encoding_key);
+    std::vector<std::uint8_t> encoded;
+    const auto location = archives.find(encoding_key);
+    if (location != archives.end()) {
+        try {
+            encoded = catalog_.fetch_archive_range(cdn, location->second.archive_key,
+                                                   location->second.offset, location->second.encoded_size);
+        } catch (const std::exception& archive_error) {
+            try {
+                encoded = catalog_.fetch_data(cdn, encoding_key);
+            } catch (const std::exception& direct_error) {
+                throw std::runtime_error("archive object failed (" + std::string(archive_error.what()) +
+                                         "); direct object failed (" + direct_error.what() + ")");
+            }
+        }
+    } else {
+        encoded = catalog_.fetch_data(cdn, encoding_key);
+    }
     const auto decoded = BlteDecoder::decode(encoded);
     write_atomic(path, decoded);
     return decoded;
@@ -163,7 +196,7 @@ bool Installer::install_one(const InstallPlan& plan, const InstallEntry& entry,
     bool found = false;
     for (const auto& encoding_key : encoding_keys) {
         try {
-            auto candidate = content(plan.cdn, encoding_key);
+            auto candidate = content(plan.cdn, plan.archive_entries, encoding_key);
             if (candidate.size() == entry.file_size && md5_hex(candidate) == entry.content_key) {
                 data = std::move(candidate);
                 found = true;

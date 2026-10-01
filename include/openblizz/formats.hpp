@@ -34,4 +34,16 @@ private:
     std::unordered_map<std::string, FileMapping> mappings_;
 };
 
+class ArchiveIndex {
+public:
+    [[nodiscard]] static ArchiveIndex parse(const std::vector<std::uint8_t>& bytes);
+    [[nodiscard]] const ArchiveLocation* find(const std::string& encoding_key) const;
+    [[nodiscard]] const std::unordered_map<std::string, ArchiveLocation>& entries() const noexcept {
+        return entries_;
+    }
+
+private:
+    std::unordered_map<std::string, ArchiveLocation> entries_;
+};
+
 } // namespace openblizz
