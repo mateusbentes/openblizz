@@ -134,7 +134,9 @@ int main() {
         {"w3", "Warcraft III: Reforged", "warcraft", "w3", true},
         {"w2r", "Warcraft II: Remastered", "warcraft", "w2r", true},
         {"w1r", "Warcraft I: Remastered", "warcraft", "w1r", true},
+        {"s1", "StarCraft: Remastered", "starcraft", "s1", true},
     };
+    assert(openblizz::find_product(products, "s1").name == "StarCraft: Remastered");
     const auto records = openblizz::LibraryManager::parse_entitlement_response(
         R"({"products":[{"product":"w3","owned":true},{"product":"w2r","owned":false},"w1r"]})",
         products);

@@ -17,7 +17,7 @@ namespace ob = openblizz;
 namespace {
 
 void usage() {
-    std::cout << R"(OpenBlizz - independent Warcraft game client
+    std::cout << R"(OpenBlizz - independent Blizzard game client
 
 Usage:
   openblizz products

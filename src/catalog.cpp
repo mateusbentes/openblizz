@@ -70,6 +70,7 @@ std::vector<ProductDescriptor> Catalog::products() const {
         {"w2bn", "Warcraft II: Battle.net Edition", "warcraft", "w2bn", true},
         {"w1r", "Warcraft I: Remastered", "warcraft", "w1r", true},
         {"war1", "Warcraft I: legacy", "warcraft", "war1", true},
+        {"s1", "StarCraft: Remastered", "starcraft", "s1", true},
     };
 }
 
@@ -202,7 +203,7 @@ const ProductDescriptor& find_product(const std::vector<ProductDescriptor>& prod
     const auto it = std::find_if(products.begin(), products.end(), [&](const auto& product) {
         return product.id == id;
     });
-    if (it == products.end()) throw std::runtime_error("unsupported Warcraft product: " + id);
+    if (it == products.end()) throw std::runtime_error("unsupported catalog product: " + id);
     return *it;
 }
 

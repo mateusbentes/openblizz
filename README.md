@@ -1,8 +1,8 @@
 # OpenBlizz
 
-OpenBlizz is an independent, native, cross-platform client for authenticated users to download, install, update, verify, repair, and launch their owned Warcraft-series games on Linux. World of Warcraft is intentionally outside the initial product scope.
+OpenBlizz is an independent, native, cross-platform client for authenticated users to download, install, update, verify, repair, and launch their owned Blizzard games on Linux. World of Warcraft is intentionally outside the initial product scope.
 
-The first supported family is:
+The initial supported catalog includes:
 
 - Warcraft III: Reforged (`w3`)
 - Warcraft III legacy/TFT (`w3-legacy-tft`)
@@ -10,6 +10,7 @@ The first supported family is:
 - Warcraft II: Battle.net Edition (`w2bn`)
 - Warcraft I: Remastered (`w1r`)
 - Warcraft I legacy (`war1`)
+- StarCraft: Remastered (`s1`)
 
 OpenBlizz does not distribute Battle.net, Agent.exe, game files, private keys, or proprietary Blizzard assets.
 
@@ -31,13 +32,13 @@ ctest --test-dir build --output-on-failure
 
 ## CLI examples
 
-List the Warcraft products known by the current catalog:
+List the products known by the current catalog:
 
 ```bash
 ./build/openblizz products
 ```
 
-This is the public supported Warcraft catalog, not an account inventory. It
+This is the public supported product catalog, not an account inventory. It
 must not be interpreted as a list of games owned by the logged-in user.
 
 Read the current build and CDN metadata:
