@@ -15,6 +15,7 @@ used as protocol and format references:
 - CASC overview: https://wowdev.wiki/CASC
 - TVFS format documentation: https://wowdev.wiki/TVFS
 - BLTE format documentation: https://wowdev.wiki/BLTE
+- Community API discussion on owned-game discovery (Jan 2025): https://us.forums.blizzard.com/en/blizzard/t/fetching-a-users-owned-games/53759
 
 No source code from Battle.Net-Installer is included in this repository.
 
@@ -22,3 +23,6 @@ The documented OAuth user flow currently exposes `/userinfo` and selected
 World of Warcraft profile resources. It does not document an owned-games,
 entitlement, installer, or download endpoint. OpenBlizz does not scrape
 private account pages or claim that the public catalog is an account inventory.
+The community discussion above mentions `account.battle.net/api/games-and-subs`
+as an observed web-session endpoint, but also records that it is not documented
+for third-party OAuth clients; OpenBlizz therefore does not call or hardcode it.

@@ -112,9 +112,14 @@ HTTPS endpoint. OpenBlizz sends the OAuth Bearer token to that endpoint, so do
 not configure an endpoint you do not trust:
 
 ```bash
+# Illustrative only: this hostname does not exist.
 ./build/openblizz library scan \
   --entitlement-url 'https://your-authorized-service.example/entitlements'
 ```
+
+Do not run that illustrative command unchanged. Until a real, authorized
+endpoint exists, use `library scan` without `--entitlement-url` and keep the
+products in the `unknown` state.
 
 The experimental adapter accepts a deliberately small JSON family such as
 `{"products":[{"product":"w3","owned":true}]}`. It is not a hardcoded

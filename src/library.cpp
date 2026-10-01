@@ -47,6 +47,12 @@ bool is_local_http(const std::string& url) {
 }
 
 void require_safe_endpoint(const std::string& url) {
+    const auto normalized = lower(url);
+    if (normalized.find(".example") != std::string::npos ||
+        normalized.find("your-authorized-service") != std::string::npos) {
+        throw std::runtime_error(
+            "the entitlement URL is an example placeholder; omit --entitlement-url until you have a real authorized endpoint");
+    }
     if (url.rfind("https://", 0) != 0 && !is_local_http(url)) {
         throw std::runtime_error(
             "experimental entitlement URL must use HTTPS; plain HTTP is allowed only for localhost");
