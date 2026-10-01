@@ -1,6 +1,7 @@
 #include "openblizz/auth.hpp"
 #include "openblizz/catalog.hpp"
 #include "openblizz/installer.hpp"
+#include "openblizz/library.hpp"
 #include "openblizz/runner.hpp"
 
 #include <algorithm>
@@ -34,6 +35,10 @@ Usage:
   openblizz auth-status --prefix PREFIX
   openblizz agent-info --prefix PREFIX [--product PRODUCT]
   openblizz account [--token-env OPENBLIZZ_OAUTH_TOKEN]
+  openblizz library list [--library-file PATH]
+  openblizz library add <product> [--library-file PATH]
+  openblizz library remove <product> [--library-file PATH]
+  openblizz library scan [--entitlement-url HTTPS_URL] [--token-file PATH]
   openblizz launch --directory DIR --exe GAME.exe [--prefix PREFIX]
                    [--backend proton|umu|wine|native] [--proton GE-Proton]
 
@@ -68,6 +73,11 @@ std::filesystem::path default_cache() {
         return std::filesystem::path(home) / ".cache/openblizz";
     }
     return std::filesystem::current_path() / ".openblizz-cache";
+}
+
+std::filesystem::path library_file(const std::vector<std::string>& args) {
+    const auto configured = option(args, "--library-file");
+    return configured.empty() ? ob::LibraryManager::default_file() : std::filesystem::path(configured);
 }
 
 std::string body_text(const ob::HttpResponse& response) {
@@ -117,6 +127,35 @@ int main(int argc, char** argv) {
             if (const auto* token = std::getenv(token_env.c_str()); token != nullptr) auth.oauth_token = token;
             auth.oauth_token_file = option(args, "--token-file");
             return ob::AuthManager::account(auth);
+        }
+
+        if (command == "library") {
+            if (args.empty()) throw std::runtime_error("library requires list, add, remove, or scan");
+            ob::HttpClient http;
+            ob::Catalog catalog(http);
+            const auto subcommand = args.front();
+            const auto path = library_file(args);
+            if (subcommand == "list") return ob::LibraryManager::list(catalog, path);
+            if (subcommand == "add" || subcommand == "remove") {
+                if (args.size() < 2) throw std::runtime_error("library " + subcommand + " requires a product id");
+                return subcommand == "add"
+                    ? ob::LibraryManager::add(catalog, path, args[1])
+                    : ob::LibraryManager::remove(catalog, path, args[1]);
+            }
+            if (subcommand == "scan") {
+                ob::AuthOptions auth;
+                auth.oauth_token_file = option(args, "--token-file");
+                const auto token_env = option(args, "--token-env", "OPENBLIZZ_OAUTH_TOKEN");
+                if (const auto* token = std::getenv(token_env.c_str()); token != nullptr) auth.oauth_token = token;
+                auto endpoint = option(args, "--entitlement-url");
+                if (endpoint.empty()) {
+                    if (const auto* configured = std::getenv("OPENBLIZZ_ENTITLEMENT_URL"); configured != nullptr) {
+                        endpoint = configured;
+                    }
+                }
+                return ob::LibraryManager::scan(catalog, auth, path, endpoint);
+            }
+            throw std::runtime_error("unknown library command: " + subcommand);
         }
 
         if (command == "agent-info") {

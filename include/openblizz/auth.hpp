@@ -25,6 +25,7 @@ public:
     static int status(const AuthOptions& options);
     static int account(const AuthOptions& options);
     static int agent_info(const AuthOptions& options, const std::string& product);
+    static std::string oauth_access_token(const AuthOptions& options);
     static bool authenticated(const AuthOptions& options, const std::string& product,
                               std::string& reason);
     static void require_authenticated(const AuthOptions& options, const std::string& product);

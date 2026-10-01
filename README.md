@@ -87,6 +87,42 @@ After OAuth login, inspect the authenticated identity:
 ./build/openblizz account
 ```
 
+## Account library providers
+
+OpenBlizz keeps account-library state separately from the public product
+catalog. The OAuth identity provider confirms the account, but the documented
+Battle.net OAuth API does not currently expose an owned-games endpoint. A scan
+without another provider therefore records products as `unknown`, never as
+`not_owned`:
+
+```bash
+./build/openblizz library scan
+./build/openblizz library list
+```
+
+The manual provider is explicit and does not claim proof of ownership:
+
+```bash
+./build/openblizz library add w3
+./build/openblizz library remove w3
+```
+
+An experimental provider can be enabled only by explicitly configuring an
+HTTPS endpoint. OpenBlizz sends the OAuth Bearer token to that endpoint, so do
+not configure an endpoint you do not trust:
+
+```bash
+./build/openblizz library scan \
+  --entitlement-url 'https://your-authorized-service.example/entitlements'
+```
+
+The experimental adapter accepts a deliberately small JSON family such as
+`{"products":[{"product":"w3","owned":true}]}`. It is not a hardcoded
+private Blizzard endpoint and does not pretend that an undocumented response
+is a stable Blizzard API. Missing products remain `unknown` rather than being
+classified as `not_owned`. Library state is stored with owner-only permissions
+at `~/.local/state/openblizz/library.json` unless `--library-file` is used.
+
 The native installer can use the OAuth identity without starting Battle.net:
 
 ```bash

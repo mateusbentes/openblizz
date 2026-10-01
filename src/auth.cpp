@@ -465,6 +465,10 @@ int AuthManager::account(const AuthOptions& options) {
     return 0;
 }
 
+std::string AuthManager::oauth_access_token(const AuthOptions& options) {
+    return load_token(options);
+}
+
 int AuthManager::agent_info(const AuthOptions& options, const std::string& product) {
     std::string reason;
     const auto session = probe_agent(options, product, reason);

@@ -22,6 +22,7 @@ add_library(openblizz_core
     src/installer.cpp
     src/runner.cpp
     src/auth.cpp
+    src/library.cpp
 )
 
 target_include_directories(openblizz_core

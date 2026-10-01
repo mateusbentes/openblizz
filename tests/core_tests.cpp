@@ -1,8 +1,10 @@
 #include "openblizz/formats.hpp"
 #include "openblizz/hash.hpp"
+#include "openblizz/library.hpp"
 
 #include <cassert>
 #include <cstdint>
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -127,6 +129,32 @@ int main() {
     assert(archive_entry != nullptr);
     assert(archive_entry->offset == 0x01020304);
     assert(archive_entry->encoded_size == 0x1234);
+
+    const std::vector<openblizz::ProductDescriptor> products{
+        {"w3", "Warcraft III: Reforged", "warcraft", "w3", true},
+        {"w2r", "Warcraft II: Remastered", "warcraft", "w2r", true},
+        {"w1r", "Warcraft I: Remastered", "warcraft", "w1r", true},
+    };
+    const auto records = openblizz::LibraryManager::parse_entitlement_response(
+        R"({"products":[{"product":"w3","owned":true},{"product":"w2r","owned":false},"w1r"]})",
+        products);
+    assert(records.size() == 3);
+    assert(records[0].product_id == "w1r");
+    assert(records[0].owned);
+    assert(records[1].product_id == "w2r");
+    assert(!records[1].owned);
+    assert(records[2].product_id == "w3");
+    assert(records[2].owned);
+
+    const auto library_path = std::filesystem::temp_directory_path() / "openblizz-library-test.json";
+    openblizz::LibraryManager::save(library_path, {
+        {"w3", "Warcraft III: Reforged", openblizz::OwnershipState::Manual,
+         "manual", "test", 1},
+    });
+    const auto loaded = openblizz::LibraryManager::load(library_path);
+    assert(loaded.size() == 1);
+    assert(loaded.front().ownership == openblizz::OwnershipState::Manual);
+    std::filesystem::remove(library_path);
 
     std::cout << "OpenBlizz core tests passed\n";
     return 0;

@@ -17,6 +17,39 @@ struct ProductDescriptor {
     bool supported{true};
 };
 
+enum class OwnershipState {
+    Unknown,
+    Owned,
+    NotOwned,
+    Manual,
+};
+
+[[nodiscard]] inline const char* ownership_state_name(const OwnershipState state) {
+    switch (state) {
+    case OwnershipState::Unknown: return "unknown";
+    case OwnershipState::Owned: return "owned";
+    case OwnershipState::NotOwned: return "not_owned";
+    case OwnershipState::Manual: return "manual";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] inline OwnershipState ownership_state_from_name(const std::string& name) {
+    if (name == "owned") return OwnershipState::Owned;
+    if (name == "not_owned") return OwnershipState::NotOwned;
+    if (name == "manual") return OwnershipState::Manual;
+    return OwnershipState::Unknown;
+}
+
+struct LibraryEntry {
+    std::string product_id;
+    std::string name;
+    OwnershipState ownership{OwnershipState::Unknown};
+    std::string source;
+    std::string reason;
+    std::int64_t updated_at{};
+};
+
 struct VersionInfo {
     std::string product;
     std::string region;
