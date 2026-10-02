@@ -32,6 +32,15 @@ struct AccountWebResult {
     std::vector<std::string> unknown_titles;
 };
 
+// Battle.net "titleId" values are the big-endian FourCC of a program code
+// (22323 == "W3", 5730135 == "WoW", 1095647827 == "ANBS"). These helpers
+// convert between the two so any NGDP product can be matched.
+[[nodiscard]] std::string decode_title_id(std::int64_t title_id);
+[[nodiscard]] std::int64_t encode_title_id(const std::string& code);
+// Returns the account titleId expected for a catalog product, or -1 when the
+// product is not distributed as a Battle.net game account (classic CD keys).
+[[nodiscard]] std::int64_t expected_title_id(const std::string& product_id);
+
 struct LibraryScanOptions {
     std::string entitlement_url;
     AccountWebSession web_session;

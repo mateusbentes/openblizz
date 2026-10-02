@@ -22,7 +22,7 @@ void usage() {
     std::cout << R"(OpenBlizz - independent Blizzard game client
 
 Usage:
-  openblizz products
+  openblizz products [--all]           (--all: every NGDP product code from Ribbit)
   openblizz versions <product> [--region us]
   openblizz cdns <product> [--region us]
   openblizz plan <product> [--region us] [--locale enUS] [--all-locales] [--no-data]
@@ -212,6 +212,16 @@ int main(int argc, char** argv) {
         if (command == "products") {
             ob::HttpClient http;
             ob::Catalog catalog(http);
+            if (has_flag(args, "--all")) {
+                // Every product code published by Ribbit; most are PTR/beta/internal.
+                for (const auto& entry : catalog.summary(option(args, "--region").empty() ? "us" : option(args, "--region"))) {
+                    if (!entry.flags.empty()) continue;
+                    const auto title = ob::expected_title_id(entry.product);
+                    std::cout << entry.product << "\tseqn=" << entry.seqn
+                              << (title > 0 ? "\ttitleId=" + std::to_string(title) : std::string{}) << '\n';
+                }
+                return 0;
+            }
             for (const auto& product : catalog.products()) {
                 std::cout << product.id << "\t" << product.name << '\n';
             }

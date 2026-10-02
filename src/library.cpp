@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <set>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -128,7 +129,9 @@ std::vector<LibraryEntry> catalog_entries(const Catalog& catalog,
             result.push_back({product.id, product.name, OwnershipState::Unknown,
                               "catalog", "not scanned", now_seconds()});
         }
+        by_id.erase(product.id);
     }
+    for (const auto& [id, entry] : by_id) result.push_back(entry);  // dynamic (summary) products
     return result;
 }
 
@@ -343,17 +346,39 @@ namespace {
 // Title identifiers observed in the account.battle.net "games-and-subs"
 // response. The mapping is documented in SOURCES.md and derived from the
 // MIT-licensed galaxy-integration-blizzard project and public account pages.
-const std::map<std::int64_t, std::vector<std::string>>& title_id_products() {
+std::string lower_copy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+// Title identifiers whose program code differs from the NGDP product code.
+// Everything else is resolved by decoding the FourCC (see decode_title_id).
+// Sources: the user's own account responses and the MIT-licensed
+// galaxy-integration-blizzard definitions, documented in SOURCES.md.
+const std::map<std::int64_t, std::vector<std::string>>& title_id_overrides() {
     static const std::map<std::int64_t, std::vector<std::string>> table{
-        {21297, {"s1"}},
-        {21298, {"s2"}},
-        {22323, {"w3", "w3-legacy-tft"}},
-        {5730135, {"wow"}},
-        {1095647827, {"anbs"}},  // "ANBS", Diablo Immortal
+        {22323, {"w3", "w3-legacy-tft"}},      // "W3"   Warcraft III (Reforged + legacy)
+        {1465140039, {"hsb"}},                 // "WTCG" Hearthstone
+        {1214607983, {"hero"}},                // "Hero" Heroes of the Storm
+        {5272175, {"pro"}},                    // "Pro"  Overwatch
+        {1329875278, {"odin"}},                // "OdIn" Call of Duty: Modern Warfare
+        {1279351378, {"lazr"}},                // "LAZR" Call of Duty: Modern Warfare II
     };
     return table;
 }
 
+std::vector<std::string> products_for_title(std::int64_t title_id, const std::vector<ProductDescriptor>& products) {
+    const auto override = title_id_overrides().find(title_id);
+    if (override != title_id_overrides().end()) return override->second;
+    const auto code = lower_copy(decode_title_id(title_id));
+    if (code.empty()) return {};
+    std::vector<std::string> result;
+    for (const auto& product : products) {
+        if (lower_copy(product.id) == code) result.push_back(product.id);
+    }
+    return result;
+}
 std::string normalize_title(std::string value) {
     std::string out;
     for (std::size_t i = 0; i < value.size(); ++i) {
@@ -441,9 +466,49 @@ void apply_records(std::vector<LibraryEntry>& entries, const std::vector<Entitle
         }
         entry.updated_at = now_seconds();
     }
+    // Products recognised from the account but outside the curated catalog
+    // (matched through the Ribbit summary) are appended so they show up too.
+    for (const auto& [product_id, record] : by_id) {
+        const bool present = std::any_of(entries.begin(), entries.end(),
+                                         [&](const LibraryEntry& e) { return e.product_id == product_id; });
+        if (present) continue;
+        entries.push_back({product_id, "NGDP product " + product_id,
+                           record.owned ? OwnershipState::Owned : OwnershipState::NotOwned,
+                           record.source, record.reason, now_seconds()});
+    }
 }
 
 } // namespace
+
+std::string decode_title_id(std::int64_t title_id) {
+    if (title_id <= 0 || title_id > 0xFFFFFFFFLL) return {};
+    std::string out;
+    for (int shift = 24; shift >= 0; shift -= 8) {
+        const auto byte = static_cast<unsigned char>((title_id >> shift) & 0xFF);
+        if (byte == 0 && out.empty()) continue;  // codes shorter than four characters
+        if (byte < 0x21 || byte > 0x7E) return {};
+        out.push_back(static_cast<char>(byte));
+    }
+    return out;
+}
+
+std::int64_t encode_title_id(const std::string& code) {
+    if (code.empty() || code.size() > 4) return -1;
+    std::int64_t value = 0;
+    for (const unsigned char c : code) value = (value << 8) | c;
+    return value;
+}
+
+std::int64_t expected_title_id(const std::string& product_id) {
+    for (const auto& [title_id, products] : title_id_overrides()) {
+        if (std::find(products.begin(), products.end(), product_id) != products.end()) return title_id;
+    }
+    // Program codes are upper-case except for the historical "WoW" spelling.
+    if (product_id == "wow") return encode_title_id("WoW");
+    std::string code = product_id;
+    std::transform(code.begin(), code.end(), code.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    return encode_title_id(code);
+}
 
 AccountWebResult LibraryManager::parse_account_web(const std::string& games_and_subs_body,
                                                    const std::string& classic_games_body,
@@ -465,16 +530,18 @@ AccountWebResult LibraryManager::parse_account_web(const std::string& games_and_
                 title_id = account.at("gameAccountUniqueId").at("programId").get<std::int64_t>();
             }
             const auto status = status_text(account);
-            const auto mapped = title_id_products().find(title_id);
-            if (mapped == title_id_products().end()) {
+            const auto mapped = products_for_title(title_id, products);
+            if (mapped.empty()) {
+                const auto code = decode_title_id(title_id);
                 result.unknown_titles.push_back("titleId=" + std::to_string(title_id) +
+                                                (code.empty() ? "" : " (\"" + code + "\")") +
                                                 (status.empty() ? "" : " status=" + status));
                 continue;
             }
             // Statuses observed on the account page. "Trial" is the only one that
             // does not represent a purchased or free license.
             const bool owned = status != "Trial";
-            for (const auto& product_id : mapped->second) {
+            for (const auto& product_id : mapped) {
                 if (!product_in_catalog(products, product_id)) continue;
                 result.records.push_back({product_id, owned, true, "account-web",
                                           "games-and-subs titleId " + std::to_string(title_id) +
@@ -504,6 +571,39 @@ AccountWebResult LibraryManager::parse_account_web(const std::string& games_and_
             }
             if (!matched) result.unknown_titles.push_back("classic=\"" + name + "\"");
         }
+    }
+
+    // The account page enumerates every game account and every classic CD key
+    // of the logged-in account. When a query succeeded, a curated product that
+    // did not appear in it is therefore not owned (as opposed to unknown).
+    std::set<std::string> seen;
+    for (const auto& record : result.records) seen.insert(record.product_id);
+    const bool have_accounts = !games_and_subs_body.empty();
+    const bool have_classic = !classic_games_body.empty();
+    for (const auto& product : products) {
+        if (seen.count(product.id) != 0 || product.family == "ngdp") continue;
+        bool classic_only = false;
+        for (const auto& [needle, product_id] : classic_title_products()) {
+            if (product_id == product.id) classic_only = true;
+        }
+        if (classic_only && !product.supported) {
+            if (have_classic) {
+                result.records.push_back({product.id, false, true, "account-web",
+                                          "classic-games lists no CD key for this title"});
+            }
+            continue;
+        }
+        const auto title_id = expected_title_id(product.id);
+        if (title_id < 0 || !have_accounts) continue;
+        if (classic_only && have_classic) {
+            result.records.push_back({product.id, false, true, "account-web",
+                                      "no game account (titleId " + std::to_string(title_id) + ") and no classic CD key"});
+            continue;
+        }
+        if (classic_only) continue;
+        result.records.push_back({product.id, false, true, "account-web",
+                                  "games-and-subs lists no game account for titleId " + std::to_string(title_id) +
+                                  " (\"" + decode_title_id(title_id) + "\")"});
     }
     return result;
 }
@@ -651,13 +751,21 @@ int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
             std::cout << "Raw account responses saved with owner-only permissions at " << options.dump_path << '\n';
         }
 
-        const auto web = parse_account_web(games_body, classic_body, catalog.products());
+        std::vector<ProductDescriptor> products;
+        try {
+            products = catalog.all_products();
+        } catch (const std::exception& error) {
+            std::cerr << "Warning: could not load the Ribbit product summary (" << error.what()
+                      << "); matching against the curated catalog only.\n";
+            products = catalog.products();
+        }
+        const auto web = parse_account_web(games_body, classic_body, products);
         apply_records(entries, web.records, "account-web");
         save(path, entries);
         if (options.quiet) return 0;
         std::cout << "Recognized account entries: " << web.records.size() << '\n';
         if (!web.unknown_titles.empty()) {
-            std::cout << "Unmapped account entries (not in the OpenBlizz catalog yet):\n";
+            std::cout << "Unmapped account entries (no NGDP product with this program code):\n";
             for (const auto& title : web.unknown_titles) std::cout << "  " << title << '\n';
         }
         print_entries(entries);

@@ -47,6 +47,18 @@ against `account.battle.net/api/`, stores them with owner-only permissions at
 scans your library. The dedicated profile is never shared with your normal
 browser profile.
 
+### How ownership is resolved
+
+Battle.net `titleId` values are the FourCC of the program code (`22323` =
+`"W3"`, `5730135` = `"WoW"`, `1095647827` = `"ANBS"`). OpenBlizz decodes them
+and matches the code against the full Ribbit product summary, so any NGDP game
+on your account is recognised, not only the curated catalog
+(`openblizz products --all` lists every published product code). Because the
+account page enumerates every game account and classic CD key, a curated
+product that does not appear after a successful scan is reported as
+`not_owned`; `unknown` is now reserved for products that genuinely could not be
+checked (no session, or a failed request).
+
 From then on `library list`, `install`, `update` and `repair` renew the
 session automatically; no cookie export is needed. The manual
 `library scan --cookie-file cookies.txt` path remains available as a fallback

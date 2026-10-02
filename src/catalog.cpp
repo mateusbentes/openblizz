@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <sstream>
+#include <set>
 #include <stdexcept>
 
 namespace openblizz {
@@ -79,6 +80,35 @@ std::vector<ProductDescriptor> Catalog::products() const {
         {"d2-classic", "Diablo II (classic, legacy installer)", "diablo", "", false},
         {"d2-lod", "Diablo II: Lord of Destruction (classic, legacy installer)", "diablo", "", false},
     };
+}
+
+std::vector<Catalog::SummaryEntry> Catalog::summary(const std::string& region) const {
+    const auto url = "https://" + region + ".version.battle.net/v2/summary";
+    const auto response = http_.get(url);
+    std::vector<std::string> header;
+    const auto rows = parse_bpsv(body_text(response), &header);
+    const auto product_index = field_index(header, "Product");
+    const auto seqn_index = field_index(header, "Seqn");
+    const auto flags_index = field_index(header, "Flags");
+    std::vector<SummaryEntry> result;
+    for (const auto& row : rows) {
+        SummaryEntry entry{cell(row, product_index), cell(row, seqn_index), cell(row, flags_index)};
+        if (!entry.product.empty()) result.push_back(std::move(entry));
+    }
+    if (result.empty()) throw std::runtime_error("Ribbit summary returned no products");
+    return result;
+}
+
+std::vector<ProductDescriptor> Catalog::all_products(const std::string& region) const {
+    auto result = products();
+    std::set<std::string> known;
+    for (const auto& product : result) known.insert(product.id);
+    for (const auto& entry : summary(region)) {
+        if (!entry.flags.empty()) continue;  // only "versions" rows name a product
+        if (!known.insert(entry.product).second) continue;
+        result.push_back({entry.product, "NGDP product " + entry.product, "ngdp", entry.product, true});
+    }
+    return result;
 }
 
 VersionInfo Catalog::version(const std::string& product, const std::string& region) const {

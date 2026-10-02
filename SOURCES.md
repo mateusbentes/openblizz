@@ -31,3 +31,4 @@ endpoints are not documented for third parties (see the discussion above); the
 provider is opt-in, labelled experimental, and only the response shape and the
 public `titleId` table were taken from the MIT-licensed reference, not code.
 Known `titleId` values: 21297 = StarCraft, 22323 = Warcraft III.
+- Battle.net titleId = FourCC of the program code (observed on the account's own games-and-subs response: 22323 "W3", 21297 "S1", 21298 "S2", 5730135 "WoW", 1095647827 "ANBS"; corroborated by the MIT-licensed galaxy-integration-blizzard TITLE_ID_MAP).

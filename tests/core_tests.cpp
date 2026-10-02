@@ -263,6 +263,37 @@ int main() {
     assert(web.records[4].product_id == "w2bn" && web.records[4].owned);
     assert(web.records[5].product_id == "d2-classic" && web.records[5].owned);
     assert(web.unknown_titles.empty());
+    // FourCC title ids.
+    assert(openblizz::decode_title_id(22323) == "W3");
+    assert(openblizz::decode_title_id(5730135) == "WoW");
+    assert(openblizz::decode_title_id(1095647827) == "ANBS");
+    assert(openblizz::decode_title_id(-1).empty() && openblizz::decode_title_id(1).empty());
+    assert(openblizz::encode_title_id("S2") == 21298);
+    assert(openblizz::expected_title_id("wow") == 5730135);
+    assert(openblizz::expected_title_id("w3-legacy-tft") == 22323);
+    assert(openblizz::expected_title_id("hsb") == 1465140039);
+    assert(openblizz::expected_title_id("w1r") == 5714258);
+    {
+        // Absent curated products become not_owned; unknown FourCCs are reported
+        // decoded; summary-only products are matched by code.
+        const std::vector<openblizz::ProductDescriptor> all{
+            {"w3", "Warcraft III: Reforged", "warcraft", "w3", true},
+            {"w1r", "Warcraft I: Remastered", "warcraft", "w1r", true},
+            {"d2-lod", "Diablo II: LoD", "diablo", "", false},
+            {"anbs", "NGDP product anbs", "ngdp", "anbs", true},
+        };
+        const auto r = openblizz::LibraryManager::parse_account_web(
+            R"({"gameAccounts":[{"titleId":22323,"gameAccountStatus":"Good"},
+                                {"titleId":1095647827,"gameAccountStatus":"Good"},
+                                {"titleId":1178684229,"gameAccountStatus":"Good"}]})",
+            R"({"classicGames":[]})", all);
+        assert(r.records.size() == 4);
+        assert(r.records[0].product_id == "w3" && r.records[0].owned);
+        assert(r.records[1].product_id == "anbs" && r.records[1].owned);
+        assert(r.records[2].product_id == "w1r" && !r.records[2].owned && r.records[2].explicit_state);
+        assert(r.records[3].product_id == "d2-lod" && !r.records[3].owned);
+        assert(r.unknown_titles.size() == 1 && r.unknown_titles[0].find("\"FAKE\"") != std::string::npos);
+    }
 
     const auto cookie_path = std::filesystem::temp_directory_path() / "openblizz-cookies-test.txt";
     {

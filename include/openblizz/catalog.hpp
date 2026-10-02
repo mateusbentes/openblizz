@@ -14,6 +14,21 @@ public:
     explicit Catalog(HttpClient& http);
 
     [[nodiscard]] std::vector<ProductDescriptor> products() const;
+
+    // One row of the public Ribbit "summary" endpoint: every NGDP product code
+    // currently published by Blizzard (retail, PTR, beta, internal), with its
+    // sequence number and flags ("cdn", "bgdl" or empty for versions).
+    struct SummaryEntry {
+        std::string product;
+        std::string seqn;
+        std::string flags;
+    };
+    [[nodiscard]] std::vector<SummaryEntry> summary(const std::string& region = "us") const;
+
+    // Curated products plus a generic descriptor for every other product code
+    // in the Ribbit summary, so account entries for games outside the curated
+    // list can still be recognised and installed.
+    [[nodiscard]] std::vector<ProductDescriptor> all_products(const std::string& region = "us") const;
     [[nodiscard]] VersionInfo version(const std::string& product,
                                       const std::string& region) const;
     [[nodiscard]] std::vector<CdnInfo> cdns(const std::string& product,
