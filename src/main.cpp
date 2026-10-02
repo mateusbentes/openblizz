@@ -278,7 +278,7 @@ int main(int argc, char** argv) {
             }
             if (!table.empty()) table.print();
             std::cout << "\nCurated catalog of known products, not your account library (see `openblizz library list`;\n"
-                         "`products --all` lists every NGDP code, `products --shop` the storefront highlights).\n";
+                         "`products --all` lists every NGDP code, `products --shop` the storefront games).\n";
             return 0;
         }
 

@@ -81,6 +81,10 @@ inline std::string family_label(const std::string& family) {
     if (family == "arcade") return "Blizzard Arcade";
     if (family == "overwatch") return "Overwatch";
     if (family == "hearthstone") return "Hearthstone";
+    if (family == "heroes") return "Heroes of the Storm";
+    if (family == "ngdp" || family.empty()) return "Other Battle.net products";
+    if (family == "overwatch") return "Overwatch";
+    if (family == "hearthstone") return "Hearthstone";
     if (family == "callofduty") return "Call of Duty";
     if (family.empty()) return "Other";
     std::string label = family;
