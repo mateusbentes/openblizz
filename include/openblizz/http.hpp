@@ -51,6 +51,10 @@ public:
     [[nodiscard]] HttpResponse get(const std::string& url,
                                    const std::vector<std::string>& headers = {});
 
+    // Writes the current (possibly rotated) cookies to a Netscape file with
+    // owner-only permissions. Opt-in; nothing is persisted otherwise.
+    void save_jar(const std::string& path);
+
 private:
     struct Impl;
     Impl* impl_;

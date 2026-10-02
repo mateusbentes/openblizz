@@ -2,6 +2,10 @@
 
 #include <curl/curl.h>
 
+#if !defined(_WIN32)
+#include <sys/stat.h>
+#endif
+
 #include <cstdio>
 #include <fstream>
 #include <memory>
@@ -274,6 +278,20 @@ CookieSession::~CookieSession() {
         if (impl_->curl != nullptr) curl_easy_cleanup(impl_->curl);
         delete impl_;
     }
+}
+
+void CookieSession::save_jar(const std::string& path) {
+    // Create the file with owner-only permissions before libcurl writes it.
+    {
+        std::ofstream create(path, std::ios::app);
+        if (!create) throw std::runtime_error("cannot create cookie jar: " + path);
+    }
+#if !defined(_WIN32)
+    ::chmod(path.c_str(), S_IRUSR | S_IWUSR);
+#endif
+    curl_easy_setopt(impl_->curl, CURLOPT_COOKIEJAR, path.c_str());
+    // CURLOPT_COOKIEJAR is written at handle cleanup; flush explicitly now.
+    curl_easy_setopt(impl_->curl, CURLOPT_COOKIELIST, "FLUSH");
 }
 
 HttpResponse CookieSession::get(const std::string& url, const std::vector<std::string>& headers) {

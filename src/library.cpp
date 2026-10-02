@@ -554,6 +554,10 @@ int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
             const auto classic = browser.get(base + "/api/classic-games", headers);
             if (is_json(classic)) classic_body = response_text(classic);
             else std::cerr << "Warning: classic-games query returned HTTP " << classic.status << '\n';
+            if (!session.cookie_jar.empty()) {
+                browser.save_jar(session.cookie_jar.string());
+                std::cout << "Updated session cookies saved with owner-only permissions at " << session.cookie_jar << '\n';
+            }
         } else {
             headers.push_back("Cookie: " + session.cookie_header);
             headers.push_back("User-Agent: Mozilla/5.0 (X11; Linux x86_64) OpenBlizz/0.1");

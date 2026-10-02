@@ -39,7 +39,7 @@ Usage:
   openblizz library add <product> [--library-file PATH]
   openblizz library remove <product> [--library-file PATH]
   openblizz library scan [--cookie-file cookies.txt | --cookie-header 'JSESSIONID=...']
-                         [--account-host account.battle.net] [--dump PATH]
+                         [--cookie-jar PATH] [--account-host account.battle.net] [--dump PATH]
                          [--entitlement-url HTTPS_URL] [--token-file PATH]
   openblizz launch --directory DIR --exe GAME.exe [--prefix PREFIX]
                    [--backend proton|umu|wine|native] [--proton GE-Proton]
@@ -170,6 +170,7 @@ int main(int argc, char** argv) {
                         throw std::runtime_error("cookie file not found: " + cookie_file);
                     }
                     scan_options.web_session.cookie_file = cookie_file;
+                    scan_options.web_session.cookie_jar = option(args, "--cookie-jar");
                 } else {
                     scan_options.web_session.cookie_header = option(args, "--cookie-header");
                 }

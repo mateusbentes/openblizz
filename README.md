@@ -133,6 +133,12 @@ ever requested, and the cookies are kept in memory only.
 
 Products returned with a `Good`, `Free`, `Inactive` or similar status become
 `owned`; `Trial` becomes `not_owned`; products not returned stay `unknown`.
+The persistent battle.net login cookie rotates each time the session is
+renewed, so an export becomes stale after use. Pass `--cookie-jar PATH` to
+write the rotated cookies back (owner-only permissions) and reuse that file in
+later scans; never share a cookie export, since any other use invalidates
+yours.
+
 Add `--dump PATH` to save the raw responses (owner-only permissions) so that
 unmapped `titleId` values can be added to the catalog mapping.
 

@@ -23,6 +23,7 @@ struct EntitlementRecord {
 struct AccountWebSession {
     std::string cookie_header;
     std::filesystem::path cookie_file;
+    std::filesystem::path cookie_jar;   // optional write-back target
     std::string host{"account.battle.net"};
 };
 
