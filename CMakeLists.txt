@@ -23,7 +23,6 @@ add_library(openblizz_core
     src/tvfs.cpp
     src/casc.cpp
     src/runner.cpp
-    src/auth.cpp
     src/library.cpp
     src/browser_login.cpp
 )

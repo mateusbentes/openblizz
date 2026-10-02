@@ -219,16 +219,6 @@ int main() {
         {"s1", "StarCraft: Remastered", "starcraft", "s1", true},
     };
     assert(openblizz::find_product(products, "s1").name == "StarCraft: Remastered");
-    const auto records = openblizz::LibraryManager::parse_entitlement_response(
-        R"({"products":[{"product":"w3","owned":true},{"product":"w2r","owned":false},"w1r"]})",
-        products);
-    assert(records.size() == 3);
-    assert(records[0].product_id == "w1r");
-    assert(records[0].owned);
-    assert(records[1].product_id == "w2r");
-    assert(!records[1].owned);
-    assert(records[2].product_id == "w3");
-    assert(records[2].owned);
 
     const auto library_path = std::filesystem::temp_directory_path() / "openblizz-library-test.json";
     openblizz::LibraryManager::save(library_path, {
@@ -320,17 +310,6 @@ int main() {
         assert(cards.size() == 1 && cards[0].name == "The Witcher 3" && cards[0].slug == "the-witcher-3");
     }
 
-    const auto cookie_path = std::filesystem::temp_directory_path() / "openblizz-cookies-test.txt";
-    {
-        std::ofstream cookies(cookie_path);
-        cookies << "# Netscape HTTP Cookie File\n"
-                << "account.battle.net\tFALSE\t/\tTRUE\t0\tJSESSIONID\tabc\n"
-                << "#HttpOnly_.battle.net\tTRUE\t/\tTRUE\t0\tsessionTrackingId\txyz\n"
-                << "www.example.com\tFALSE\t/\tTRUE\t0\tignored\t1\n";
-    }
-    const auto header = openblizz::LibraryManager::cookie_header_from_netscape_file(cookie_path, "account.battle.net");
-    assert(header == "JSESSIONID=abc; sessionTrackingId=xyz");
-    std::filesystem::remove(cookie_path);
 
     const auto tvfs = openblizz::parse_tvfs(make_tvfs(0x01));
     assert(tvfs.ekey_size == 9);

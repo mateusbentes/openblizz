@@ -1,4 +1,3 @@
-#include "openblizz/auth.hpp"
 #include "openblizz/browser_login.hpp"
 #include "openblizz/catalog.hpp"
 #include "openblizz/installer.hpp"
@@ -28,25 +27,17 @@ Usage:
   openblizz plan <product> [--region us] [--locale enUS] [--all-locales] [--no-data]
   openblizz vfs manifests <product> [--region us]
   openblizz vfs list <product> [--region us] [--root war3.w3mod] [--manifests-only] [--summary]
-  openblizz install <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS]
+  openblizz install <product> --directory DIR [--prefix PREFIX] [--region us] [--locale enUS]
                     [--all-locales] [--no-data] [--jobs 4] [--limit N] [--data-limit BYTES] [--force]
-  openblizz update <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS] [--jobs 4]
+  openblizz update <product> --directory DIR [--prefix PREFIX] [--region us] [--locale enUS] [--jobs 4]
   openblizz verify <product> --directory DIR [--region us] [--locale enUS] [--all-locales] [--deep]
-  openblizz repair <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS] [--jobs 4]
+  openblizz repair <product> --directory DIR [--prefix PREFIX] [--region us] [--locale enUS] [--jobs 4]
   openblizz login [--browser-exe PATH] [--timeout 600] [--keep-browser] [--cookie-jar PATH]
-  openblizz login --oauth --client-id ID --redirect-uri URI [--scope openid] [--secret-env ENV]
-                  [--token-file PATH]
-  openblizz agent-login --prefix PREFIX [--backend auto|umu|wine] [--proton GE-Proton]
-                        [--installer Battle.Net-Setup.exe]
-  openblizz auth-status --prefix PREFIX
-  openblizz agent-info --prefix PREFIX [--product PRODUCT]
-  openblizz account [--token-env OPENBLIZZ_OAUTH_TOKEN]
+  openblizz logout [--cookie-jar PATH]
   openblizz library add <product> [--library-file PATH]
   openblizz library remove <product> [--library-file PATH]
   openblizz library list [--all] [--library-file PATH]
-  openblizz library scan [--cookie-file cookies.txt | --cookie-header 'JSESSIONID=...'] [--no-cookie-jar]
-                         [--cookie-jar PATH] [--account-host account.battle.net] [--dump PATH]
-                         [--entitlement-url HTTPS_URL] [--token-file PATH]
+  openblizz library scan [--dump PATH] [--cookie-jar PATH]
   openblizz launch --directory DIR --exe GAME.exe [--prefix PREFIX]
                    [--backend proton|umu|wine|native] [--proton GE-Proton] [-- GAME_ARGS...]
 
@@ -54,8 +45,9 @@ The login command opens an isolated window of your default browser (Firefox
 family via WebDriver BiDi, Chromium family via DevTools) on the official
 Battle.net login page, waits until you finish (password, MFA, captcha), keeps the
 session cookies with owner-only permissions, closes the window and scans your
-library. --oauth with a developer client id uses Battle.net OAuth instead.
-The agent-login command is the optional legacy Battle.net UI fallback.
+library. Every later command (library scan, install, update, repair) reuses that
+saved session and renews it automatically; logout deletes it. OpenBlizz never
+sees your password and does not use the Battle.net app, Agent or OAuth API.
 The vfs commands mount the TVFS manifests of the current build (vfs-root plus
 the nested vfs-N manifests) and list the virtual files they describe.
 For products with a TVFS root (Warcraft III: Reforged), install also fills the
@@ -242,14 +234,6 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        if (command == "account") {
-            ob::AuthOptions auth;
-            const auto token_env = option(args, "--token-env", "OPENBLIZZ_OAUTH_TOKEN");
-            if (const auto* token = std::getenv(token_env.c_str()); token != nullptr) auth.oauth_token = token;
-            auth.oauth_token_file = option(args, "--token-file");
-            return ob::AuthManager::account(auth);
-        }
-
         if (command == "library") {
             if (args.empty()) throw std::runtime_error("library requires list, add, remove, or scan");
             ob::HttpClient http;
@@ -267,101 +251,49 @@ int main(int argc, char** argv) {
                     : ob::LibraryManager::remove(catalog, path, args[1]);
             }
             if (subcommand == "scan") {
-                ob::AuthOptions auth;
-                auth.oauth_token_file = option(args, "--token-file");
-                const auto token_env = option(args, "--token-env", "OPENBLIZZ_OAUTH_TOKEN");
-                if (const auto* token = std::getenv(token_env.c_str()); token != nullptr) auth.oauth_token = token;
-                auto endpoint = option(args, "--entitlement-url");
-                if (endpoint.empty()) {
-                    if (const auto* configured = std::getenv("OPENBLIZZ_ENTITLEMENT_URL"); configured != nullptr) {
-                        endpoint = configured;
-                    }
-                }
+                // Uses the Battle.net session captured by `openblizz login`.
                 ob::LibraryScanOptions scan_options;
-                scan_options.entitlement_url = endpoint;
                 scan_options.web_session.host = option(args, "--account-host", "account.battle.net");
                 scan_options.dump_path = option(args, "--dump");
-                auto cookie_file = option(args, "--cookie-file");
-                if (cookie_file.empty()) {
-                    if (const auto* configured = std::getenv("OPENBLIZZ_ACCOUNT_COOKIE_FILE"); configured != nullptr) {
-                        cookie_file = configured;
-                    }
+                const auto jar = option(args, "--cookie-jar", ob::LibraryManager::default_cookie_jar().string());
+                if (!std::filesystem::is_regular_file(jar)) {
+                    throw std::runtime_error("no saved Battle.net session at " + jar + "; run `openblizz login` first");
                 }
-                const auto default_jar = ob::LibraryManager::default_cookie_jar();
-                if (cookie_file.empty() && option(args, "--cookie-header").empty() &&
-                    std::filesystem::is_regular_file(default_jar)) {
-                    cookie_file = default_jar.string();   // reuse the saved session automatically
-                }
-                if (!cookie_file.empty()) {
-                    if (!std::filesystem::is_regular_file(cookie_file)) {
-                        throw std::runtime_error("cookie file not found: " + cookie_file);
-                    }
-                    scan_options.web_session.cookie_file = cookie_file;
-                    auto jar = option(args, "--cookie-jar");
-                    if (jar.empty() && !has_flag(args, "--no-cookie-jar")) jar = default_jar.string();
-                    if (!jar.empty() && jar != cookie_file) {
-                        std::filesystem::create_directories(std::filesystem::path(jar).parent_path());
-                    }
-                    scan_options.web_session.cookie_jar = jar;
-                } else {
-                    scan_options.web_session.cookie_header = option(args, "--cookie-header");
-                }
-                return ob::LibraryManager::scan(catalog, auth, path, scan_options);
+                scan_options.web_session.cookie_file = jar;
+                scan_options.web_session.cookie_jar = jar;   // keep rotated cookies
+                return ob::LibraryManager::scan(catalog, path, scan_options);
             }
             throw std::runtime_error("unknown library command: " + subcommand);
         }
 
-        if (command == "agent-info") {
-            ob::AuthOptions auth;
-            auth.prefix = option(args, "--prefix");
-            return ob::AuthManager::agent_info(auth, option(args, "--product"));
+        if (command == "login") {
+            // steamcmd-like interactive login: isolated window of the default
+            // browser on the official Battle.net page; password, MFA and captcha
+            // happen there. OpenBlizz only keeps the resulting session cookies.
+            ob::BrowserLoginOptions browser;
+            browser.browser = option(args, "--browser-exe");
+            browser.account_host = option(args, "--account-host", "account.battle.net");
+            browser.timeout_seconds = std::stoi(option(args, "--timeout", "600"));
+            browser.keep_browser_open = has_flag(args, "--keep-browser");
+            if (const auto jar = option(args, "--cookie-jar"); !jar.empty()) browser.cookie_jar = jar;
+            if (const auto profile = option(args, "--profile-dir"); !profile.empty()) browser.profile_dir = profile;
+            const auto jar = ob::BrowserLogin::run(browser);
+            ob::HttpClient http;
+            ob::Catalog catalog(http);
+            ob::LibraryScanOptions scan_options;
+            scan_options.web_session.cookie_file = jar;
+            scan_options.web_session.cookie_jar = jar;
+            scan_options.web_session.host = browser.account_host;
+            std::cout << "Scanning your Battle.net library.\n";
+            return ob::LibraryManager::scan(catalog, library_file(args), scan_options);
         }
 
-        if (command == "login" || command == "oauth-login") {
-            ob::AuthOptions auth;
-            auth.oauth_client_id = option(args, "--client-id");
-            if (auth.oauth_client_id.empty()) {
-                if (const auto* value = std::getenv("OPENBLIZZ_CLIENT_ID"); value != nullptr) auth.oauth_client_id = value;
-            }
-            const bool want_oauth = command == "oauth-login" || has_flag(args, "--oauth") ||
-                                    (!auth.oauth_client_id.empty() && !has_flag(args, "--browser"));
-            if (!want_oauth) {
-                // Default: steamcmd-like interactive login in an isolated browser window.
-                ob::BrowserLoginOptions browser;
-                browser.browser = option(args, "--browser-exe");
-                browser.account_host = option(args, "--account-host", "account.battle.net");
-                browser.timeout_seconds = std::stoi(option(args, "--timeout", "600"));
-                browser.keep_browser_open = has_flag(args, "--keep-browser");
-                if (const auto jar = option(args, "--cookie-jar"); !jar.empty()) browser.cookie_jar = jar;
-                if (const auto profile = option(args, "--profile-dir"); !profile.empty()) browser.profile_dir = profile;
-                const auto jar = ob::BrowserLogin::run(browser);
-                ob::HttpClient http;
-                ob::Catalog catalog(http);
-                ob::LibraryScanOptions scan_options;
-                scan_options.web_session.cookie_file = jar;
-                scan_options.web_session.cookie_jar = jar;
-                scan_options.web_session.host = browser.account_host;
-                std::cout << "Scanning your Battle.net library.\n";
-                return ob::LibraryManager::scan(catalog, ob::AuthOptions{}, library_file(args), scan_options);
-            }
-            const auto secret_env = option(args, "--secret-env", "OPENBLIZZ_CLIENT_SECRET");
-            if (const auto* value = std::getenv(secret_env.c_str()); value != nullptr) auth.oauth_client_secret = value;
-            auth.oauth_redirect_uri = option(args, "--redirect-uri");
-            if (auth.oauth_redirect_uri.empty()) {
-                if (const auto* value = std::getenv("OPENBLIZZ_REDIRECT_URI"); value != nullptr) auth.oauth_redirect_uri = value;
-            }
-            auth.oauth_scope = option(args, "--scope", "openid");
-            auth.oauth_token_file = option(args, "--token-file");
-            return ob::AuthManager::oauth_login(auth);
-        }
-
-        if (command == "agent-login" || command == "auth-status") {
-            ob::AuthOptions auth;
-            auth.prefix = option(args, "--prefix");
-            auth.proton_path = option(args, "--proton", "GE-Proton");
-            auth.backend = option(args, "--backend", "auto");
-            auth.installer = option(args, "--installer");
-            return command == "agent-login" ? ob::AuthManager::agent_login(auth) : ob::AuthManager::status(auth);
+        if (command == "logout") {
+            const auto jar = option(args, "--cookie-jar", ob::LibraryManager::default_cookie_jar().string());
+            std::error_code ec;
+            const bool removed = std::filesystem::remove(jar, ec);
+            std::cout << (removed ? "Saved Battle.net session removed.\n" : "No saved session found.\n");
+            return 0;
         }
 
         if (command == "launch") {
@@ -417,23 +349,11 @@ int main(int argc, char** argv) {
             const auto directory = option(args, "--directory");
             if (directory.empty()) throw std::runtime_error(command + " requires --directory");
             if (command == "install" || command == "update" || command == "repair") {
-                ob::AuthOptions auth;
-                auth.prefix = option(args, "--prefix");
-                auth.proton_path = option(args, "--proton", "GE-Proton");
-                auth.oauth_token_file = option(args, "--token-file");
-                const auto token_env = option(args, "--token-env", "OPENBLIZZ_OAUTH_TOKEN");
-                if (const auto* token = std::getenv(token_env.c_str()); token != nullptr) auth.oauth_token = token;
-                try {
-                    ob::AuthManager::require_authenticated(auth, product);
-                } catch (const std::exception& error) {
-                    // Accept the Battle.net account session captured by `openblizz login`.
-                    const auto jar = ob::LibraryManager::default_cookie_jar();
-                    if (!ob::BrowserLogin::session_authenticated(jar, "account.battle.net")) {
-                        throw std::runtime_error(std::string(error.what()) +
-                                                 "; no valid Battle.net account session either (run `openblizz login`)");
-                    }
-                    std::cout << "Authentication: Battle.net account session verified\n";
+                const auto jar = option(args, "--cookie-jar", ob::LibraryManager::default_cookie_jar().string());
+                if (!ob::BrowserLogin::session_authenticated(jar, "account.battle.net")) {
+                    throw std::runtime_error("no valid Battle.net account session; run `openblizz login` first");
                 }
+                std::cout << "Authentication: Battle.net account session verified\n";
                 const auto library_path = library_file(args);
                 ob::LibraryManager::auto_refresh(catalog, library_path, ob::LibraryManager::default_cookie_jar(), 6 * 3600);
                 const auto ownership = ob::LibraryManager::ownership_of(library_path, product);
@@ -446,8 +366,8 @@ int main(int argc, char** argv) {
                 } else if (ownership == ob::OwnershipState::Manual) {
                     std::cout << "Ownership: " << product << " was added manually to the library.\n";
                 } else {
-                    std::cout << "Warning: ownership of " << product << " is unknown (Blizzard has no public entitlement API); "
-                                 "run `openblizz library scan --cookie-file cookies.txt` once with your account session.\n";
+                    std::cout << "Warning: ownership of " << product << " is unknown; run `openblizz library scan` "
+                                 "(or `openblizz login` again) to refresh your account library.\n";
                 }
             }
             auto plan = make_plan(installer, product, args);

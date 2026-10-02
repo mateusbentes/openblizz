@@ -39,27 +39,6 @@ std::string lower(std::string value) {
     return value;
 }
 
-bool is_local_http(const std::string& url) {
-    return url.rfind("http://localhost/", 0) == 0 ||
-           url.rfind("http://localhost:", 0) == 0 ||
-           url.rfind("http://127.0.0.1/", 0) == 0 ||
-           url.rfind("http://127.0.0.1:", 0) == 0 ||
-           url.rfind("http://[::1]/", 0) == 0;
-}
-
-void require_safe_endpoint(const std::string& url) {
-    const auto normalized = lower(url);
-    if (normalized.find(".example") != std::string::npos ||
-        normalized.find("your-authorized-service") != std::string::npos) {
-        throw std::runtime_error(
-            "the entitlement URL is an example placeholder; omit --entitlement-url until you have a real authorized endpoint");
-    }
-    if (url.rfind("https://", 0) != 0 && !is_local_http(url)) {
-        throw std::runtime_error(
-            "experimental entitlement URL must use HTTPS; plain HTTP is allowed only for localhost");
-    }
-}
-
 const ProductDescriptor* known_product(const std::vector<ProductDescriptor>& products,
                                        const std::string& candidate) {
     const auto needle = lower(candidate);
@@ -68,51 +47,6 @@ const ProductDescriptor* known_product(const std::vector<ProductDescriptor>& pro
     }
     return nullptr;
 }
-
-std::optional<std::string> object_product_id(const json& value) {
-    if (!value.is_object()) return std::nullopt;
-    for (const auto& key : {"product_id", "productId", "product", "uid", "code", "slug", "id"}) {
-        if (!value.contains(key)) continue;
-        const auto& item = value.at(key);
-        if (item.is_string()) return item.get<std::string>();
-    }
-    return std::nullopt;
-}
-
-std::optional<bool> object_owned(const json& value) {
-    if (!value.is_object()) return std::nullopt;
-    for (const auto& key : {"owned", "entitled", "has_entitlement", "hasEntitlement", "active"}) {
-        if (!value.contains(key) || !value.at(key).is_boolean()) continue;
-        return value.at(key).get<bool>();
-    }
-    return std::nullopt;
-}
-
-void collect_item(const json& item, const std::vector<ProductDescriptor>& products,
-                  std::vector<EntitlementRecord>& result) {
-    if (item.is_string()) {
-        if (const auto* product = known_product(products, item.get<std::string>()); product != nullptr) {
-            result.push_back({product->id, true, true, "experimental-oauth", "listed by configured endpoint"});
-        }
-        return;
-    }
-    if (!item.is_object()) return;
-
-    const auto candidate = object_product_id(item);
-    if (candidate) {
-        if (const auto* product = known_product(products, *candidate); product != nullptr) {
-            const auto owned = object_owned(item).value_or(true);
-            result.push_back({product->id, owned, true, "experimental-oauth",
-                              owned ? "endpoint reported entitlement" : "endpoint reported no entitlement"});
-        }
-    }
-
-    for (const auto& key : {"products", "entitlements", "owned_products", "ownedProducts", "games", "items"}) {
-        if (!item.contains(key) || !item.at(key).is_array()) continue;
-        for (const auto& nested : item.at(key)) collect_item(nested, products, result);
-    }
-}
-
 std::vector<LibraryEntry> catalog_entries(const Catalog& catalog,
                                           const std::vector<LibraryEntry>& existing) {
     std::map<std::string, LibraryEntry> by_id;
@@ -219,36 +153,6 @@ void LibraryManager::save(const std::filesystem::path& path,
 #endif
 }
 
-std::vector<EntitlementRecord> LibraryManager::parse_entitlement_response(
-    const std::string& body, const std::vector<ProductDescriptor>& products) {
-    const auto document = json::parse(body, nullptr, true, true);
-    std::vector<EntitlementRecord> result;
-
-    if (document.is_array()) {
-        for (const auto& item : document) collect_item(item, products, result);
-    } else if (document.is_object()) {
-        for (const auto& product : products) {
-            for (const auto& key : {product.id, product.agent_product}) {
-                if (!document.contains(key) || !document.at(key).is_boolean()) continue;
-                result.push_back({product.id, document.at(key).get<bool>(), true,
-                                  "experimental-oauth", "endpoint returned a product boolean"});
-            }
-        }
-        collect_item(document, products, result);
-        for (const auto& key : {"products", "entitlements", "owned_products", "ownedProducts", "games", "items"}) {
-            if (!document.contains(key) || !document.at(key).is_array()) continue;
-            for (const auto& item : document.at(key)) collect_item(item, products, result);
-        }
-    } else {
-        throw std::runtime_error("entitlement endpoint returned JSON that is not an object or array");
-    }
-
-    std::map<std::string, EntitlementRecord> unique;
-    for (const auto& record : result) unique[record.product_id] = record;
-    result.clear();
-    for (auto& [id, record] : unique) result.push_back(std::move(record));
-    return result;
-}
 
 std::filesystem::path LibraryManager::default_cookie_jar() {
     if (const auto* xdg = std::getenv("XDG_CONFIG_HOME"); xdg != nullptr && *xdg != '\0') {
@@ -276,7 +180,7 @@ bool LibraryManager::auto_refresh(const Catalog& catalog, const std::filesystem:
     options.quiet = true;
     try {
         std::cout << "Refreshing account library from the saved session.\n";
-        (void)scan(catalog, AuthOptions{}, library_path, options);
+        (void)scan(catalog, library_path, options);
         return true;
     } catch (const std::exception& error) {
         std::cerr << "Warning: account library refresh failed: " << error.what() << '\n';
@@ -776,71 +680,16 @@ std::vector<LibraryManager::ShopCard> LibraryManager::parse_shop_cards(const std
     return cards;
 }
 
-std::string LibraryManager::cookie_header_from_netscape_file(const std::filesystem::path& path,
-                                                             const std::string& host) {
-    std::ifstream input(path);
-    if (!input) throw std::runtime_error("cannot read cookie file: " + path.string());
-    std::string line;
-    std::string header;
-    while (std::getline(input, line)) {
-        if (line.empty()) continue;
-        bool http_only = false;
-        if (line.rfind("#HttpOnly_", 0) == 0) { http_only = true; line = line.substr(10); }
-        else if (line[0] == '#') continue;
-        (void)http_only;
-        std::vector<std::string> fields;
-        std::string field;
-        for (const auto ch : line) {
-            if (ch == '\t') { fields.push_back(field); field.clear(); }
-            else field.push_back(ch);
-        }
-        fields.push_back(field);
-        if (fields.size() < 7) continue;
-        auto domain = lower(fields[0]);
-        if (!domain.empty() && domain[0] == '.') domain = domain.substr(1);
-        const auto target = lower(host);
-        const bool matches = target == domain ||
-            (target.size() > domain.size() && target.compare(target.size() - domain.size() - 1, domain.size() + 1, "." + domain) == 0);
-        if (!matches) continue;
-        if (!header.empty()) header += "; ";
-        header += fields[5] + "=" + fields[6];
-    }
-    if (header.empty()) throw std::runtime_error("no cookies for " + host + " found in " + path.string());
-    return header;
-}
 
-int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
-                         const std::filesystem::path& path, const LibraryScanOptions& options) {
+int LibraryManager::scan(const Catalog& catalog, const std::filesystem::path& path,
+                         const LibraryScanOptions& options) {
     HttpClient http;
-    const bool has_web_session =
-        !options.web_session.cookie_header.empty() || !options.web_session.cookie_file.empty();
-    std::string token;
-    try {
-        token = AuthManager::oauth_access_token(auth);
-        if (!token.empty()) {
-            const auto identity_response = http.get("https://oauth.battle.net/userinfo", {
-                "Authorization: Bearer " + token,
-                "Accept: application/json",
-                "User-Agent: OpenBlizz/0.1",
-            });
-            const auto identity = json::parse(response_text(identity_response));
-            if (!identity.is_object()) throw std::runtime_error("OAuth /userinfo returned an invalid identity response");
-            if (!options.quiet) std::cout << "OAuth identity verified for library scan.\n";
-        }
-    } catch (const std::exception& error) {
-        // The OAuth identity is informational when an account web session is
-        // supplied; the web session is the actual ownership source.
-        if (!has_web_session) throw;
-        token.clear();
-        if (!options.quiet) std::cerr << "Warning: OAuth identity unavailable (" << error.what() << "); continuing with the account web session.\n";
+    if (options.web_session.cookie_file.empty()) {
+        throw std::runtime_error("library scan needs the Battle.net session saved by `openblizz login`");
     }
-    if (token.empty() && !has_web_session) {
-        throw std::runtime_error("library scan requires an OAuth token or account web session cookies");
-    }
-
     auto entries = catalog_entries(catalog, load(path));
 
-    if (!options.web_session.cookie_header.empty() || !options.web_session.cookie_file.empty()) {
+    {
         const auto& session = options.web_session;
         if (session.host.find('/') != std::string::npos || session.host.empty()) {
             throw std::runtime_error("invalid account host: " + session.host);
@@ -858,74 +707,44 @@ int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
         };
         if (!options.quiet) std::cout << "Account web session provider: querying " << base << "/api/games-and-subs\n";
 
-        if (!session.cookie_file.empty()) {
-            // Browser-like session: the cookie engine keeps the exported cookies in
-            // memory. If the account sub-site session expired, the site's own
-            // login redirect chain renews it using the persistent battle.net
-            // cookies (remember/login.key), exactly as a browser would.
-            CookieSession browser(session.cookie_file.string());
-            auto games = browser.get(base + "/api/games-and-subs", headers);
-            if (!is_json(games)) {
-                if (!options.quiet) std::cout << "Account session expired; renewing it through the site login flow.\n";
-                const auto renew = browser.get(base + "/oauth2/authorization/account-settings");
-                if (renew.status != 200) {
-                    throw std::runtime_error("session renewal ended with HTTP " + std::to_string(renew.status) +
-                                             "; log in again in the browser and re-export cookies.txt");
-                }
-                if (renew.effective_url.find("/login/") != std::string::npos) {
-                    throw std::runtime_error(
-                        "battle.net asked for a password: the persistent login cookies in this export were "
-                        "rejected (they rotate on every use and expire). Log in again at "
-                        "https://account.battle.net/games in the browser, export a fresh cookies.txt for the "
-                        "whole battle.net domain, and run the scan with --cookie-jar so the rotated cookies are kept.");
-                }
-                games = browser.get(base + "/api/games-and-subs", headers);
+        // The cookie engine keeps the saved session cookies in
+        // memory. If the account sub-site session expired, the site's own
+        // login redirect chain renews it using the persistent battle.net
+        // cookies (remember/login.key), exactly as a browser would.
+        CookieSession browser(session.cookie_file.string());
+        auto games = browser.get(base + "/api/games-and-subs", headers);
+        if (!is_json(games)) {
+            if (!options.quiet) std::cout << "Account session expired; renewing it through the site login flow.\n";
+            const auto renew = browser.get(base + "/oauth2/authorization/account-settings");
+            if (renew.status != 200) {
+                throw std::runtime_error("session renewal ended with HTTP " + std::to_string(renew.status) +
+                                         "; run `openblizz login` again");
             }
-            if (!is_json(games)) {
-                throw std::runtime_error(http_error_hint("status " + std::to_string(games.status) +
-                                                         " from games-and-subs"));
+            if (renew.effective_url.find("/login/") != std::string::npos) {
+                throw std::runtime_error(
+                    "battle.net asked for a password: the saved session expired. Run `openblizz login` again.");
             }
-            games_body = response_text(games);
-            const auto classic = browser.get(base + "/api/classic-games", headers);
-            if (is_json(classic)) classic_body = response_text(classic);
-            else std::cerr << "Warning: classic-games query returned HTTP " << classic.status << '\n';
-            // Purchase history per Battle.net region (1 = Americas, 2 = Europe, 3 = Asia).
-            if (!options.quiet) std::cout << "Account web session provider: querying " << base << "/api/transactions\n";
-            for (const int region_id : {1, 2, 3}) {
-                const auto tx = browser.get(base + "/api/transactions?regionId=" + std::to_string(region_id), headers);
-                if (is_json(tx)) transaction_bodies.push_back(response_text(tx));
-                else if (region_id == 1) std::cerr << "Warning: transactions query returned HTTP " << tx.status << '\n';
-            }
-            if (!session.cookie_jar.empty()) {
-                browser.save_jar(session.cookie_jar.string());
-                if (!options.quiet) std::cout << "Updated session cookies saved with owner-only permissions at " << session.cookie_jar << '\n';
-            }
-        } else {
-            headers.push_back("Cookie: " + session.cookie_header);
-            headers.push_back("User-Agent: Mozilla/5.0 (X11; Linux x86_64) OpenBlizz/0.1");
-            try {
-                games_body = response_text(http.get(base + "/api/games-and-subs", headers));
-            } catch (const std::exception& error) {
-                throw std::runtime_error(http_error_hint(error.what()));
-            }
-            if (games_body.empty() || games_body.front() == '<') {
-                throw std::runtime_error("account.battle.net returned HTML instead of JSON; the session cookies are not authenticated");
-            }
-            try {
-                classic_body = response_text(http.get(base + "/api/classic-games", headers));
-            } catch (const std::exception& error) {
-                std::cerr << "Warning: classic-games query failed: " << http_error_hint(error.what()) << '\n';
-            }
-            if (!classic_body.empty() && classic_body.front() == '<') classic_body.clear();
-            for (const int region_id : {1, 2, 3}) {
-                try {
-                    auto body = response_text(http.get(base + "/api/transactions?regionId=" + std::to_string(region_id), headers));
-                    if (!body.empty() && body.front() != '<') transaction_bodies.push_back(std::move(body));
-                } catch (const std::exception&) {
-                }
-            }
+            games = browser.get(base + "/api/games-and-subs", headers);
         }
-
+        if (!is_json(games)) {
+            throw std::runtime_error(http_error_hint("status " + std::to_string(games.status) +
+                                                     " from games-and-subs"));
+        }
+        games_body = response_text(games);
+        const auto classic = browser.get(base + "/api/classic-games", headers);
+        if (is_json(classic)) classic_body = response_text(classic);
+        else std::cerr << "Warning: classic-games query returned HTTP " << classic.status << '\n';
+        // Purchase history per Battle.net region (1 = Americas, 2 = Europe, 3 = Asia).
+        if (!options.quiet) std::cout << "Account web session provider: querying " << base << "/api/transactions\n";
+        for (const int region_id : {1, 2, 3}) {
+            const auto tx = browser.get(base + "/api/transactions?regionId=" + std::to_string(region_id), headers);
+            if (is_json(tx)) transaction_bodies.push_back(response_text(tx));
+            else if (region_id == 1) std::cerr << "Warning: transactions query returned HTTP " << tx.status << '\n';
+        }
+        if (!session.cookie_jar.empty()) {
+            browser.save_jar(session.cookie_jar.string());
+            if (!options.quiet) std::cout << "Updated session cookies saved with owner-only permissions at " << session.cookie_jar << '\n';
+        }
         if (!options.dump_path.empty()) {
             json dump;
             dump["games_and_subs"] = json::parse(games_body, nullptr, false, true);
@@ -970,35 +789,6 @@ int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
         print_entries(entries);
         return 0;
     }
-
-    if (options.entitlement_url.empty()) {
-        for (auto& entry : entries) {
-            if (entry.ownership == OwnershipState::Manual) continue;
-            entry.ownership = OwnershipState::Unknown;
-            entry.source = "oauth-identity";
-            entry.reason = "public OAuth identity does not expose owned products";
-            entry.updated_at = now_seconds();
-        }
-        save(path, entries);
-        std::cout << "No account session or entitlement endpoint configured; ownership remains unknown.\n"
-                  << "Hint: export your account.battle.net cookies and run library scan --cookie-file cookies.txt\n";
-        print_entries(entries);
-        return 0;
-    }
-
-    require_safe_endpoint(options.entitlement_url);
-    std::cout << "Experimental entitlement probe enabled for the configured endpoint.\n";
-    const auto response = http.get(options.entitlement_url, {
-        "Authorization: Bearer " + token,
-        "Accept: application/json",
-        "User-Agent: OpenBlizz/0.1",
-    });
-    const auto records = parse_entitlement_response(response_text(response), catalog.products());
-    apply_records(entries, records, "experimental-oauth");
-    save(path, entries);
-    std::cout << "Recognized entitlement records: " << records.size() << '\n';
-    print_entries(entries);
-    return 0;
 }
 
 } // namespace openblizz

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "openblizz/auth.hpp"
 #include "openblizz/catalog.hpp"
 #include "openblizz/types.hpp"
 
@@ -21,7 +20,6 @@ struct EntitlementRecord {
 // Session cookies for the account.battle.net web application. Loaded only in
 // memory from a Netscape cookies.txt export or a raw Cookie header string.
 struct AccountWebSession {
-    std::string cookie_header;
     std::filesystem::path cookie_file;
     std::filesystem::path cookie_jar;   // optional write-back target
     std::string host{"account.battle.net"};
@@ -42,7 +40,6 @@ struct AccountWebResult {
 [[nodiscard]] std::int64_t expected_title_id(const std::string& product_id);
 
 struct LibraryScanOptions {
-    std::string entitlement_url;
     AccountWebSession web_session;
     std::filesystem::path dump_path;
     bool quiet{false};
@@ -66,9 +63,6 @@ public:
     static void save(const std::filesystem::path& path,
                      const std::vector<LibraryEntry>& entries);
 
-    // Parse only deliberately supported response shapes. Absence is never treated as not-owned.
-    [[nodiscard]] static std::vector<EntitlementRecord> parse_entitlement_response(
-        const std::string& body, const std::vector<ProductDescriptor>& products);
 
     // Parse the account.battle.net "games-and-subs" and "classic-games" JSON.
     // Purchase history (account.battle.net /api/transactions). Each purchase
@@ -95,15 +89,13 @@ public:
         const std::string& games_and_subs_body, const std::string& classic_games_body,
         const std::vector<ProductDescriptor>& products);
 
-    [[nodiscard]] static std::string cookie_header_from_netscape_file(
-        const std::filesystem::path& path, const std::string& host);
 
     static int list(const Catalog& catalog, const std::filesystem::path& path, bool show_all);
     static int add(const Catalog& catalog, const std::filesystem::path& path,
                    const std::string& product_id);
     static int remove(const Catalog& catalog, const std::filesystem::path& path,
                       const std::string& product_id);
-    static int scan(const Catalog& catalog, const AuthOptions& auth,
+    static int scan(const Catalog& catalog,
                     const std::filesystem::path& path, const LibraryScanOptions& options);
 };
 

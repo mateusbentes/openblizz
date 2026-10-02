@@ -59,11 +59,12 @@ product that does not appear after a successful scan is reported as
 `not_owned`; `unknown` is now reserved for products that genuinely could not be
 checked (no session, or a failed request).
 
-From then on `library list`, `install`, `update` and `repair` renew the
-session automatically; no cookie export is needed. The manual
-`library scan --cookie-file cookies.txt` path remains available as a fallback
-(for browsers without an automation protocol, e.g. GNOME Web/Epiphany), and `login --oauth --client-id ...`
-still performs the Battle.net OAuth developer flow.
+From then on `library scan`, `library list`, `install`, `update` and `repair`
+reuse that saved session and renew it automatically through the site's own
+login redirect, exactly like a browser does. `openblizz logout` deletes the
+saved session. This is the only authentication path: OpenBlizz does not use
+the Battle.net desktop app, its Agent, the OAuth developer API or manually
+exported cookie files.
 
 ## Build on Debian/Ubuntu
 
@@ -101,121 +102,50 @@ Inspect the current build manifests without downloading game content:
 ./build/openblizz plan w3 --region us --locale enUS
 ```
 
-Authenticate directly through the official Battle.net OAuth page. Create an
-OAuth client in the Blizzard Developer Portal, register its HTTPS redirect URI,
-and keep the client secret outside the repository:
+Log in once (opens your default browser on the official Battle.net page):
 
 ```bash
-export OPENBLIZZ_CLIENT_SECRET='your-client-secret'
-./build/openblizz login \
-  --client-id 'your-client-id' \
-  --redirect-uri 'https://your.example/callback' \
-  --scope openid
-unset OPENBLIZZ_CLIENT_SECRET
+./build/openblizz login
+./build/openblizz logout   # forget the saved session
 ```
 
-OpenBlizz opens the authorization URL, then asks you to paste the callback URL
-from the browser. The resulting access token is stored at
-`~/.config/openblizz/oauth-token.json` with owner-only permissions. The client
-secret is never stored by OpenBlizz.
-
-The legacy Battle.net UI remains available only as an optional fallback:
-
-```bash
-./build/openblizz agent-login \
-  --prefix "$HOME/Games/openblizz/battlenet" \
-  --backend auto
-./build/openblizz auth-status --prefix "$HOME/Games/openblizz/battlenet"
-./build/openblizz agent-info --prefix "$HOME/Games/openblizz/battlenet" --product w3
-```
-
-After OAuth login, inspect the authenticated identity:
-
-```bash
-./build/openblizz account
-```
-
-## Account library providers
+## Account library
 
 OpenBlizz keeps account-library state separately from the public product
-catalog. The OAuth identity provider confirms the account, but the documented
-Battle.net OAuth API does not currently expose an owned-games endpoint. A scan
-without another provider therefore records products as `unknown`, never as
-`not_owned`:
+catalog. `login` runs a scan automatically; re-run it any time:
 
 ```bash
 ./build/openblizz library scan
 ./build/openblizz library list
 ```
 
-The manual provider is explicit and does not claim proof of ownership:
+The scan reads the licenses attached to your account through the same internal
+JSON endpoints the Battle.net account page itself uses (`/api/games-and-subs`,
+`/api/classic-games` and the purchase history `/api/transactions`), with the
+session saved by `login`. Products returned with a `Good`, `Free`, `Inactive`
+or similar status become `owned`; `Trial` becomes `not_owned`; titles that
+create a game account but are absent become `not_owned`; licence-only titles
+(Warcraft I/II Remastered, ...) are resolved from the purchase history and
+otherwise stay `unknown`. Add `--dump PATH` to save the raw responses
+(owner-only permissions) so unmapped `titleId` values can be added to the
+mapping.
+
+These endpoints are not part of Blizzard's documented developer API. They can
+change without notice and their use by third-party tools may fall outside
+Blizzard's terms; entries are labelled `account-web` in the library file.
+
+A manual override exists for products the account page cannot express; it
+does not claim proof of ownership:
 
 ```bash
 ./build/openblizz library add w3
 ./build/openblizz library remove w3
 ```
 
-### Account web session provider (experimental, undocumented API)
+Library state is stored with owner-only permissions at
+`~/.local/state/openblizz/library.json` unless `--library-file` is used.
 
-The Battle.net account management site (`account.battle.net`) lists the
-licenses attached to your account through the same internal JSON endpoints its
-own web page uses (`/api/games-and-subs` and `/api/classic-games`). OpenBlizz
-can read them with the cookies of *your own* browser session. No password is
-ever requested, and the cookies are kept in memory only.
-
-1. Log in at https://account.battle.net/games in your browser.
-2. Export the cookies for the whole `battle.net` domain (not only
-   `account.battle.net`) as a Netscape `cookies.txt`, for example with the
-   "Get cookies.txt LOCALLY" or "cookies.txt" browser extensions. The
-   persistent `.battle.net` login cookies are required: the account sub-site
-   session is short-lived and OpenBlizz renews it through the site's own login
-   redirect, exactly like a browser does. Keep the file private; it grants
-   access to your account page. Do not export cookies of unrelated sites.
-3. Run:
-
-```bash
-./build/openblizz library scan --cookie-file ~/Downloads/cookies.txt
-./build/openblizz library list
-```
-
-Products returned with a `Good`, `Free`, `Inactive` or similar status become
-`owned`; `Trial` becomes `not_owned`; products not returned stay `unknown`.
-The persistent battle.net login cookie rotates each time the session is
-renewed, so an export becomes stale after use. Pass `--cookie-jar PATH` to
-write the rotated cookies back (owner-only permissions) and reuse that file in
-later scans; never share a cookie export, since any other use invalidates
-yours.
-
-Add `--dump PATH` to save the raw responses (owner-only permissions) so that
-unmapped `titleId` values can be added to the catalog mapping.
-
-These endpoints are not part of Blizzard's documented developer API. They can
-change without notice and their use by third-party tools may fall outside
-Blizzard's terms; the provider is therefore opt-in and clearly labelled
-`account-web` in the library file.
-
-An experimental provider can be enabled only by explicitly configuring an
-HTTPS endpoint. OpenBlizz sends the OAuth Bearer token to that endpoint, so do
-not configure an endpoint you do not trust:
-
-```bash
-# Illustrative only: this hostname does not exist.
-./build/openblizz library scan \
-  --entitlement-url 'https://your-authorized-service.example/entitlements'
-```
-
-Do not run that illustrative command unchanged. Until a real, authorized
-endpoint exists, use `library scan` without `--entitlement-url` and keep the
-products in the `unknown` state.
-
-The experimental adapter accepts a deliberately small JSON family such as
-`{"products":[{"product":"w3","owned":true}]}`. It is not a hardcoded
-private Blizzard endpoint and does not pretend that an undocumented response
-is a stable Blizzard API. Missing products remain `unknown` rather than being
-classified as `not_owned`. Library state is stored with owner-only permissions
-at `~/.local/state/openblizz/library.json` unless `--library-file` is used.
-
-The native installer can use the OAuth identity without starting Battle.net:
+Install with the saved session (no Battle.net app needed):
 
 ```bash
 ./build/openblizz install w3 \
@@ -223,9 +153,8 @@ The native installer can use the OAuth identity without starting Battle.net:
   --locale enUS --jobs 4
 ```
 
-This verifies the OAuth identity and downloads public TACT/NGDP content. Since
-Blizzard does not document a public entitlement endpoint, OpenBlizz prints a
-warning and does not claim that ownership was independently verified.
+This verifies the saved account session, refuses products your library marks
+`not_owned` (override with `--force`) and downloads public TACT/NGDP content.
 For Warcraft III: Reforged the install manifest only covers the executables.
 The game data lives in a local CASC storage that `Warcraft III.exe` opens at
 startup, so `install` also mounts the TVFS manifests of the build
@@ -242,15 +171,6 @@ inspected without installing:
 ./build/openblizz vfs list w3 --root war3.w3mod | head
 ```
 
-For a one-off token, an environment variable can be used instead of the token
-file:
-
-```bash
-export OPENBLIZZ_OAUTH_TOKEN='do-not-save-this-in-the-repository'
-./build/openblizz account
-unset OPENBLIZZ_OAUTH_TOKEN
-```
-
 Run a Windows game executable through Proton/umu:
 
 ```bash
@@ -265,25 +185,16 @@ start without the Battle.net app.
 
 ## Authentication boundary
 
-OpenBlizz never asks for or stores a Battle.net password. The primary login
-opens the official OAuth page in the user's browser, validates the callback
-state, exchanges the one-time code through `/token`, and calls `/userinfo`.
-The local Battle.net UI and Agent are not required for this identity flow.
+OpenBlizz never asks for or stores a Battle.net password. Login happens in an
+isolated window of your own browser on the official Battle.net page (password,
+MFA, captcha); OpenBlizz only keeps the resulting session cookies, with
+owner-only permissions, and renews them the way a browser would. Neither the
+Battle.net desktop app, its Agent, nor the OAuth developer API are used.
 
-The local Battle.net UI and Agent are also not required for the OAuth-backed
-installer. The Agent remains an optional compatibility path when its private
-local authority is needed.
-
-The public Agent protocol does not expose a documented third-party entitlement
-API, so OpenBlizz does not claim that a local file or version response alone
-proves ownership. The official Agent remains the authority and may reject a
-product operation. This is safer than collecting credentials or silently
-downloading an unowned product.
-
-The public OAuth documentation currently lists `/userinfo` and World of
-Warcraft profile resources for user-authorized requests. It does not list an
-owned-games, entitlement, installer, or download endpoint. OpenBlizz therefore
-does not scrape private Battle.net account pages or invent an account inventory.
+Ownership comes from your own account page and purchase history. Blizzard
+publishes no third-party entitlement API, so these endpoints are undocumented
+and may change; OpenBlizz labels them as such instead of pretending they are a
+stable API.
 
 ## Technical sources
 
