@@ -24,22 +24,33 @@ This repository is an early, buildable implementation. The NGDP/Ribbit catalog, 
 ./build/openblizz login
 ```
 
-`login` opens an **isolated** Chromium-family browser window (Chromium, Chrome,
-Brave, Edge or Vivaldi; override with `--browser-exe` or `OPENBLIZZ_BROWSER`)
-on the official Battle.net login page. Complete the login there, including
-authenticator/MFA and captcha. OpenBlizz never sees the password: when the
-account page loads, it reads the resulting session cookies through the
-browser's local DevTools endpoint, verifies them against
-`account.battle.net/api/`, stores them with owner-only permissions at
+`login` opens an **isolated** browser window on the official Battle.net login
+page. It uses your desktop default browser when possible (`xdg-settings`),
+otherwise the first supported browser it finds:
+
+| Family | Browsers | Protocol |
+|---|---|---|
+| Firefox | Firefox, Firefox ESR/Developer Edition, LibreWolf, Waterfox, Floorp | WebDriver BiDi |
+| Chromium | Chromium, Chrome, Brave, Edge, Vivaldi, Opera | Chrome DevTools |
+
+Native packages, snaps (`/snap/bin/firefox`, Ubuntu's `/usr/bin/firefox`
+wrapper) and flatpaks (`org.mozilla.firefox`, `com.brave.Browser`, ...) are all
+detected; for snaps and flatpaks the isolated profile is created inside the
+directory the sandbox can access. Force a browser with `--browser-exe PATH`
+(or a flatpak id) or `OPENBLIZZ_BROWSER`.
+
+Complete the login there, including authenticator/MFA and captcha. OpenBlizz
+never sees the password: when the account page loads, it reads the resulting
+session cookies through the browser's local automation endpoint, verifies them
+against `account.battle.net/api/`, stores them with owner-only permissions at
 `~/.config/openblizz/battlenet-cookies.txt`, closes that browser window and
-scans your library. The dedicated profile lives in
-`~/.config/openblizz/browser-profile` and is never shared with your normal
-browser.
+scans your library. The dedicated profile is never shared with your normal
+browser profile.
 
 From then on `library list`, `install`, `update` and `repair` renew the
 session automatically; no cookie export is needed. The manual
 `library scan --cookie-file cookies.txt` path remains available as a fallback
-(for example when only Firefox is installed), and `login --oauth --client-id ...`
+(for browsers without an automation protocol, e.g. GNOME Web/Epiphany), and `login --oauth --client-id ...`
 still performs the Battle.net OAuth developer flow.
 
 ## Build on Debian/Ubuntu

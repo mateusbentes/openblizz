@@ -50,7 +50,8 @@ Usage:
   openblizz launch --directory DIR --exe GAME.exe [--prefix PREFIX]
                    [--backend proton|umu|wine|native] [--proton GE-Proton] [-- GAME_ARGS...]
 
-The login command opens an isolated Chromium-family browser window on the official
+The login command opens an isolated window of your default browser (Firefox
+family via WebDriver BiDi, Chromium family via DevTools) on the official
 Battle.net login page, waits until you finish (password, MFA, captcha), keeps the
 session cookies with owner-only permissions, closes the window and scans your
 library. --oauth with a developer client id uses Battle.net OAuth instead.

@@ -419,6 +419,16 @@ int main() {
         assert(jar.find("#HttpOnly_.battle.net\tTRUE\t/\tTRUE\t1900000000\tlogin.key\tabc\n") != std::string::npos);
         assert(jar.find("account.battle.net\tFALSE\t/\tTRUE\t2147483647\tSESSIONID\ts\n") != std::string::npos);
         assert(jar.find("example.com") == std::string::npos);
+        const auto bidi = BrowserLogin::parse_bidi_cookies(R"({"cookies":[
+            {"name":"JSESSIONID","value":{"type":"string","value":"v1"},"domain":".battle.net","path":"/","expiry":1900000000,"secure":true,"httpOnly":true,"sameSite":"none","size":12},
+            {"name":"XSRF-TOKEN","value":{"type":"string","value":"t"},"domain":"account.battle.net","path":"/","secure":true,"httpOnly":false,"size":3},
+            {"name":"bin","value":{"type":"base64","value":"AAE="},"domain":".battle.net","path":"/","secure":true,"httpOnly":false,"size":2}],"partitionKey":{}})");
+        assert(bidi.size() == 2 && bidi[0].value == "v1" && bidi[0].expires == 1900000000 && bidi[1].expires < 0);
+        assert(BrowserLogin::engine_for_name("firefox") == openblizz::BrowserEngine::Firefox);
+        assert(BrowserLogin::engine_for_name("org.mozilla.firefox") == openblizz::BrowserEngine::Firefox);
+        assert(BrowserLogin::engine_for_name("librewolf") == openblizz::BrowserEngine::Firefox);
+        assert(BrowserLogin::engine_for_name("google-chrome") == openblizz::BrowserEngine::Chromium);
+        assert(BrowserLogin::engine_for_name("brave-browser") == openblizz::BrowserEngine::Chromium);
     }
     return 0;
 }
