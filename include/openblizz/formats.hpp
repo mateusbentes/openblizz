@@ -29,9 +29,15 @@ public:
         return mappings_;
     }
     [[nodiscard]] std::size_t size() const noexcept { return mappings_.size(); }
+    // EKey -> encoded size, from the EKey spec pages. Lists every encoded
+    // object of the build with its full 16-byte key.
+    [[nodiscard]] const std::unordered_map<std::string, std::uint64_t>& encoded_sizes() const noexcept {
+        return encoded_sizes_;
+    }
 
 private:
     std::unordered_map<std::string, FileMapping> mappings_;
+    std::unordered_map<std::string, std::uint64_t> encoded_sizes_;
 };
 
 class ArchiveIndex {

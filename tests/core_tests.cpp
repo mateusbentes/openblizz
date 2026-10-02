@@ -1,8 +1,10 @@
+#include "openblizz/casc.hpp"
 #include "openblizz/formats.hpp"
 #include "openblizz/hash.hpp"
 #include "openblizz/library.hpp"
 #include "openblizz/tvfs.hpp"
 
+#include <array>
 #include <cassert>
 #include <cstdint>
 #include <filesystem>
@@ -299,6 +301,104 @@ int main() {
     assert(vfs_files[1].spans[0].encoding_key == "414243444546474849");
     assert(vfs_files[2].path == "a.txt:dir/sub/b.bin");
     assert(vfs_files[3].path == "dir/sub/b.bin" && vfs_files[3].nested_manifest.empty());
+
+    // lookup3 reference vectors (Bob Jenkins' driver5 in lookup3.c).
+    assert(openblizz::jenkins_hashlittle("", 0, 0) == 0xdeadbeef);
+    assert(openblizz::jenkins_hashlittle("Four score and seven years ago", 30, 0) == 0x17770551);
+    assert(openblizz::jenkins_hashlittle("Four score and seven years ago", 30, 1) == 0xcd628161);
+    {
+        std::uint32_t pc = 0;
+        std::uint32_t pb = 0;
+        openblizz::jenkins_hashlittle2("Four score and seven years ago", 30, pc, pb);
+        assert(pc == 0x17770551 && pb == 0xce7226e6);
+    }
+
+    // CASC bucket selection and index journal round trip.
+    const auto casc_key = openblizz::casc_key("0123456789abcdef0123456789abcdef");
+    assert(openblizz::casc_bucket(casc_key) == (((0x01 ^ 0x23 ^ 0x45 ^ 0x67 ^ 0x89 ^ 0xab ^ 0xcd ^ 0xef ^ 0x01) & 0xf) ^
+                                               ((0x01 ^ 0x23 ^ 0x45 ^ 0x67 ^ 0x89 ^ 0xab ^ 0xcd ^ 0xef ^ 0x01) >> 4)));
+    {
+        std::vector<openblizz::CascEntry> entries(2);
+        entries[0].key = openblizz::casc_key("ff0000000000000000");
+        entries[0].archive = 3;
+        entries[0].offset = 0x12345;
+        entries[0].size = 100;
+        entries[1].key = openblizz::casc_key("000000000000000001");
+        entries[1].archive = 1023;
+        entries[1].offset = 0x3fffffff;
+        entries[1].size = 30;
+        const auto idx = openblizz::encode_casc_index(5, entries);
+        assert(idx.size() >= 0x8000 && idx[8] == 7 && idx[10] == 5);
+        const auto decoded = openblizz::decode_casc_index(idx, 5);
+        assert(decoded.size() == 2);
+        assert(decoded[0].key == entries[1].key && decoded[0].archive == 1023 && decoded[0].offset == 0x3fffffff);
+        assert(decoded[1].key == entries[0].key && decoded[1].archive == 3 && decoded[1].offset == 0x12345 &&
+               decoded[1].size == 100);
+        bool rejected = false;
+        try { (void)openblizz::decode_casc_index(idx, 6); } catch (const std::exception&) { rejected = true; }
+        assert(rejected);
+    }
+    {
+        std::array<std::uint8_t, 16> ekey{};
+        for (std::uint8_t i = 0; i < 16; ++i) ekey[i] = static_cast<std::uint8_t>(0x10 + i);
+        const auto header = openblizz::encode_casc_data_header(ekey, 70, 2, 0x1000);
+        assert(header[0] == 0x1f && header[15] == 0x10);
+        assert(header[0x10] == 100 && header[0x11] == 0 && header[0x14] == 0 && header[0x15] == 0);
+        const auto checksum_a = openblizz::jenkins_hashlittle(header.data(), 0x16, 0x3D6BE971);
+        assert(header[0x16] == static_cast<std::uint8_t>(checksum_a) &&
+               header[0x19] == static_cast<std::uint8_t>(checksum_a >> 24));
+    }
+    {
+        const auto casc_root = std::filesystem::temp_directory_path() / "openblizz-casc-test";
+        std::filesystem::remove_all(casc_root);
+        const std::string key_a = "00112233445566778899aabbccddeeff";
+        const std::string key_b = "ffeeddccbbaa99887766554433221100";
+        const std::vector<std::uint8_t> blob_a{'B', 'L', 'T', 'E', 0, 0, 0, 0, 'N', 'a'};
+        const std::vector<std::uint8_t> blob_b{'B', 'L', 'T', 'E', 0, 0, 0, 0, 'N', 'b', 'b'};
+        {
+            openblizz::CascStorage storage(casc_root);
+            storage.open();
+            assert(storage.append(key_a, blob_a));
+            assert(!storage.append(key_a, blob_a));
+            assert(storage.append(key_b, blob_b));
+            storage.commit();
+            assert(storage.size() == 2);
+        }
+        std::size_t journals = 0;
+        for (const auto& item : std::filesystem::directory_iterator(casc_root / "data")) {
+            if (item.path().extension() == ".idx") ++journals;
+        }
+        assert(journals == 16);
+        {
+            openblizz::CascStorage storage(casc_root);
+            storage.open();
+            assert(storage.size() == 2);
+            assert(storage.contains(key_a) && storage.contains(key_b) && !storage.contains("00" + key_a.substr(2)));
+            const auto entry = storage.find(key_b);
+            assert(entry && entry->archive == 0 && entry->offset == 30 + blob_a.size() && entry->size == 30 + blob_b.size());
+            assert(storage.read(*entry) == blob_b);
+            assert(storage.read(*storage.find(key_a)) == blob_a);
+            assert(storage.append("abcdefabcdefabcdefabcdefabcdefab", blob_a));
+            storage.commit();
+        }
+        {
+            openblizz::CascStorage storage(casc_root);
+            storage.open();
+            assert(storage.size() == 3);
+        }
+        journals = 0;
+        for (const auto& item : std::filesystem::directory_iterator(casc_root / "data")) {
+            if (item.path().extension() == ".idx") ++journals;
+        }
+        assert(journals == 16);   // superseded journals were removed
+        std::filesystem::remove_all(casc_root);
+    }
+    const auto build_info = openblizz::format_build_info({"us", "aa", "bb", "cc", 42, "tpr/war3",
+                                                          {"h1", "h2"}, {"s1"}, "T", "1.0", "w3"});
+    assert(build_info.rfind("Branch!STRING:0|Active!DEC:1|Build Key!HEX:16", 0) == 0);
+    assert(build_info.find("\nus|1|aa|bb|cc|42|tpr/war3|h1 h2|s1|T|||1.0||w3\n") != std::string::npos);
+    assert(openblizz::build_info_tags("us", "enUS") ==
+           "Windows x86_64 US? enUS speech?:Windows x86_64 US enUS text?");
 
     std::cout << "OpenBlizz core tests passed\n";
     return 0;

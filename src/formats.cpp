@@ -381,6 +381,20 @@ EncodingIndex EncodingIndex::parse(const std::vector<std::uint8_t>& decoded) {
             index.mappings_.try_emplace(ckey, FileMapping{ekeys.front(), decoded_size, std::move(ekeys)});
         }
     }
+    for (std::uint32_t page = 0; page < ekey_pages; ++page) {
+        const auto page_offset = ekey_offset + static_cast<std::uint64_t>(page) * ekey_page_size;
+        std::size_t offset = static_cast<std::size_t>(page_offset);
+        const auto end = offset + static_cast<std::size_t>(ekey_page_size);
+        // Entry: EKey, ESpec index (u32 BE), encoded size (u40 BE).
+        while (offset + ekey_size + 9 <= end) {
+            bool empty = true;
+            for (std::size_t i = 0; i < ekey_size && empty; ++i) empty = decoded[offset + i] == 0;
+            if (empty) break;
+            const auto ekey = hex_bytes(decoded.data() + offset, ekey_size);
+            index.encoded_sizes_.try_emplace(ekey, u40(decoded, offset + ekey_size + 4));
+            offset += ekey_size + 9;
+        }
+    }
     return index;
 }
 
