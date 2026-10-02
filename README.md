@@ -86,8 +86,11 @@ List the products known by the current catalog:
 ./build/openblizz products
 ```
 
-This is the public supported product catalog, not an account inventory. It
-must not be interpreted as a list of games owned by the logged-in user.
+Output is grouped by franchise (Warcraft, StarCraft, Diablo, ...) in aligned
+tables; `library list` uses the same layout with a Status and Evidence column
+(account page, purchase history, manual). This is the public supported product
+catalog, not an account inventory; `products --all` lists every NGDP product
+code and `products --shop` the public storefront highlights.
 
 Read the current build and CDN metadata:
 

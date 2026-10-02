@@ -48,6 +48,7 @@ struct LibraryEntry {
     std::string source;
     std::string reason;
     std::int64_t updated_at{};
+    std::string family;   // display grouping, from the catalog (not persisted)
 };
 
 struct VersionInfo {

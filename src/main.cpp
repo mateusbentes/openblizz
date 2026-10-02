@@ -3,6 +3,7 @@
 #include "openblizz/installer.hpp"
 #include "openblizz/library.hpp"
 #include "openblizz/runner.hpp"
+#include "openblizz/table.hpp"
 #include "openblizz/tvfs.hpp"
 
 #include <algorithm>
@@ -212,25 +213,48 @@ int main(int argc, char** argv) {
                 const auto page = shop.get("https://us.shop.battle.net/en-us", {
                     "Accept: text/html",
                 });
+                ob::Table table({"Storefront highlight", "Franchise", "Shop page"});
                 for (const auto& card : ob::LibraryManager::parse_shop_cards(page.body.empty() ? std::string{} : std::string(page.body.begin(), page.body.end()))) {
-                    std::cout << card.slug << "\t" << card.name << "\t" << card.franchise
-                              << (card.app_game_code.empty() ? "" : "\tcode=" + card.app_game_code) << '\n';
+                    table.add({card.name, card.franchise, "https://us.shop.battle.net/en-us/product/" + card.slug});
+                }
+                if (table.empty()) {
+                    std::cout << "The storefront returned no product highlights.\n";
+                } else {
+                    table.print();
+                    std::cout << "\nPublic storefront highlights only (not your library). Ownership comes from `openblizz library list`.\n";
                 }
                 return 0;
             }
             if (has_flag(args, "--all")) {
                 // Every product code published by Ribbit; most are PTR/beta/internal.
+                ob::Table table({"Product code", "Account titleId", "Ribbit seqn"});
                 for (const auto& entry : catalog.summary(option(args, "--region").empty() ? "us" : option(args, "--region"))) {
                     if (!entry.flags.empty()) continue;
                     const auto title = ob::expected_title_id(entry.product);
-                    std::cout << entry.product << "\tseqn=" << entry.seqn
-                              << (title > 0 ? "\ttitleId=" + std::to_string(title) : std::string{}) << '\n';
+                    table.add({entry.product, title > 0 ? std::to_string(title) : "-", entry.seqn});
                 }
+                table.print();
+                std::cout << "\nEvery product code published by Ribbit; most are PTR, beta or internal builds.\n";
                 return 0;
             }
-            for (const auto& product : catalog.products()) {
-                std::cout << product.id << "\t" << product.name << '\n';
+            auto products = catalog.products();
+            std::stable_sort(products.begin(), products.end(), [](const ob::ProductDescriptor& a, const ob::ProductDescriptor& b) {
+                return ob::family_before(a.family, b.family);
+            });
+            std::string current_family;
+            ob::Table table({"Id", "Game", "Install"});
+            for (const auto& product : products) {
+                if (product.family != current_family) {
+                    if (!table.empty()) { table.print(); std::cout << '\n'; table = ob::Table({"Id", "Game", "Install"}); }
+                    current_family = product.family;
+                    std::cout << ob::family_label(product.family) << '\n';
+                }
+                table.add({product.id, product.name,
+                           product.supported ? "openblizz install " + product.id : "legacy installer only (ownership tracked)"});
             }
+            if (!table.empty()) table.print();
+            std::cout << "\nCurated catalog of known products, not your account library (see `openblizz library list`;\n"
+                         "`products --all` lists every NGDP code, `products --shop` the storefront highlights).\n";
             return 0;
         }
 

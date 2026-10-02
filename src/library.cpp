@@ -1,4 +1,5 @@
 #include "openblizz/library.hpp"
+#include "openblizz/table.hpp"
 #include "openblizz/http.hpp"
 
 #include <nlohmann/json.hpp>
@@ -58,10 +59,11 @@ std::vector<LibraryEntry> catalog_entries(const Catalog& catalog,
         if (it != by_id.end()) {
             auto entry = it->second;
             if (entry.name.empty()) entry.name = product.name;
+            entry.family = product.family;
             result.push_back(std::move(entry));
         } else {
             result.push_back({product.id, product.name, OwnershipState::Unknown,
-                              "catalog", "not scanned", now_seconds()});
+                              "catalog", "not scanned", now_seconds(), product.family});
         }
         by_id.erase(product.id);
     }
@@ -69,14 +71,42 @@ std::vector<LibraryEntry> catalog_entries(const Catalog& catalog,
     return result;
 }
 
-void print_entries(const std::vector<LibraryEntry>& entries) {
-    for (const auto& entry : entries) {
-        std::cout << entry.product_id << '\t'
-                  << ownership_state_name(entry.ownership) << '\t'
-                  << "source=" << (entry.source.empty() ? "unknown" : entry.source);
-        if (!entry.reason.empty()) std::cout << "\t" << entry.reason;
-        std::cout << '\n';
+std::string ownership_label(OwnershipState state) {
+    switch (state) {
+    case OwnershipState::Owned: return "owned";
+    case OwnershipState::Manual: return "owned (manual)";
+    case OwnershipState::NotOwned: return "not owned";
+    default: return "unknown";
     }
+}
+std::string source_label(const std::string& source) {
+    if (source == "account-web") return "account page";
+    if (source == "account-purchases") return "purchase history";
+    if (source == "manual") return "added manually";
+    if (source == "catalog") return "not scanned";
+    return source.empty() ? "unknown" : source;
+}
+void print_entries(const std::vector<LibraryEntry>& entries) {
+    // Grouped by franchise, one aligned table per group.
+    std::vector<LibraryEntry> sorted = entries;
+    std::stable_sort(sorted.begin(), sorted.end(), [](const LibraryEntry& a, const LibraryEntry& b) {
+        return family_before(a.family, b.family);
+    });
+    std::string current_family;
+    const std::vector<std::string> header{"Id", "Game", "Status", "Evidence"};
+    Table table(header);
+    for (const auto& entry : sorted) {
+        if (entry.family != current_family) {
+            if (!table.empty()) { table.print(); std::cout << '\n'; table = Table(header); }
+            current_family = entry.family;
+            std::cout << family_label(entry.family) << '\n';
+        }
+        std::string evidence = source_label(entry.source);
+        if (!entry.reason.empty() && entry.reason != evidence) evidence += " - " + entry.reason;
+        table.add({entry.product_id, entry.name.empty() ? entry.product_id : entry.name,
+                   ownership_label(entry.ownership), evidence});
+    }
+    if (!table.empty()) table.print();
 }
 
 } // namespace
@@ -204,13 +234,12 @@ int LibraryManager::list(const Catalog& catalog, const std::filesystem::path& pa
             if (entry.ownership == OwnershipState::Owned || entry.ownership == OwnershipState::Manual) mine.push_back(entry);
         }
         if (mine.empty()) {
-            std::cout << "No owned products known yet. Run `openblizz library scan --cookie-file cookies.txt` "
-                         "once, or use --all to see the full catalog.\n";
+            std::cout << "No owned products known yet. Run `openblizz login` once, or use --all to see the full catalog.\n";
         }
         entries = std::move(mine);
     }
     print_entries(entries);
-    std::cout << "library-file: " << path << '\n';
+    std::cout << "\nInstall with: openblizz install <id> --directory DIR    (library file: " << path.string() << ")\n";
     return 0;
 }
 
@@ -424,7 +453,7 @@ void apply_records(std::vector<LibraryEntry>& entries, const std::vector<Entitle
         if (present) continue;
         entries.push_back({product_id, "NGDP product " + product_id,
                            record.owned ? OwnershipState::Owned : OwnershipState::NotOwned,
-                           record.source, record.reason, now_seconds()});
+                           record.source, record.reason, now_seconds(), ""});
     }
 }
 
