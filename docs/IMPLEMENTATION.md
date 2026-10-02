@@ -36,8 +36,22 @@ troubleshooting. The `products` command is intentionally a supported public
 catalog, not an account-owned inventory.
 
 The current format implementation targets the public IN/DL/EN manifest path,
-including CDN archive indexes and range reads. Products that expose only
-TVFS/VFS mappings or encrypted content must fail loudly with a capability
-error until their fixtures and key-handling provider are implemented. No game
-data is checked into this repository; fixtures must be synthetic or generated
-locally by the developer.
+including CDN archive indexes and range reads, plus the TVFS root used by
+Warcraft III: Reforged. `TvfsManifest` parses one TVFS container (path table
+with prefix folders, VFS table, CFT table with 9-byte EKeys and encoded sizes)
+and `VfsResolver` mounts `vfs-root` recursively, following the `vfs-N`
+references of the build config for nested `.w3mod` containers. `Installer`
+resolves every TVFS span to a full EKey through the encoding EKey table (or
+the archive indexes), keeps `enUS` plus the requested `_locales/xxxx.w3mod`,
+coalesces neighbouring archive objects into 32 MiB range requests, verifies
+each object against its EKey (MD5 of the object, or of the BLTE header for
+multi-chunk objects) and appends it to `CascStorage`.
+`CascStorage` writes the layout the executable reads directly: `Data/data/
+data.NNN` archives with the 30-byte header (reversed EKey, size, Jenkins
+ChecksumA, Agent ChecksumB) and 16 bucketed version-7 `.idx` journals,
+together with `Data/config/xx/yy/<hash>`, `Data/indices/<hash>.index` and the
+CSV `.build.info`. The storage reopens and resumes, so interrupted installs
+continue where they stopped; `verify --deep` re-hashes every stored object and
+`repair` drops damaged journal entries and downloads again. Encrypted content
+still fails loudly with a capability error. No game data is checked into this
+repository; fixtures must be synthetic or generated locally by the developer.

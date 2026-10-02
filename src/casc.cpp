@@ -336,6 +336,14 @@ bool CascStorage::append(const std::string& encoding_key_hex, const std::vector<
     return true;
 }
 
+bool CascStorage::erase(const std::string& encoding_key_hex) {
+    std::lock_guard lock(mutex_);
+    const auto key = casc_key(encoding_key_hex);
+    if (entries_.erase(key) == 0) return false;
+    dirty_[casc_bucket(key)] = true;
+    return true;
+}
+
 void CascStorage::commit() {
     std::lock_guard lock(mutex_);
     if (!opened_) throw std::logic_error("CascStorage::open() was not called");

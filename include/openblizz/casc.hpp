@@ -59,6 +59,10 @@ public:
     // Appends an encoded object. Thread-safe. Returns false when already present.
     bool append(const std::string& encoding_key_hex, const std::vector<std::uint8_t>& encoded);
 
+    // Forgets a journal entry so the object can be appended again (the old
+    // bytes stay in the archive as unreferenced space). Returns false if absent.
+    bool erase(const std::string& encoding_key_hex);
+
     // Writes new .idx journals for every bucket touched since open()/commit().
     void commit();
 

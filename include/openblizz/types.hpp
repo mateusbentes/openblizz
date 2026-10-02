@@ -191,6 +191,21 @@ struct BuildContext {
     CdnInfo cdn;
     ConfigFile build_config;
     ConfigFile cdn_config;
+    std::vector<std::uint8_t> build_config_bytes;
+    std::vector<std::uint8_t> cdn_config_bytes;
+};
+
+// One encoded object that must live in the local CASC storage.
+struct DataObject {
+    std::string encoding_key;      // full 16-byte hex EKey
+    std::uint64_t encoded_size{};
+    std::string source;            // "encoding", "vfs-root", "vfs-8", "install", ...
+};
+
+struct PlanOptions {
+    bool all_locales{false};       // keep every _locales/xxxx.w3mod instead of enUS + --locale
+    bool skip_data{false};         // only extract the install manifest (legacy behaviour)
+    std::uint64_t data_limit{};    // for testing: stop adding data objects after this many bytes
 };
 
 struct InstallPlan {
@@ -199,11 +214,22 @@ struct InstallPlan {
     CdnInfo cdn;
     ConfigFile build_config;
     ConfigFile cdn_config;
+    std::vector<std::uint8_t> build_config_bytes;
+    std::vector<std::uint8_t> cdn_config_bytes;
     InstallManifest install_manifest;
     std::unordered_map<std::string, FileMapping> mappings;
     std::unordered_map<std::string, ArchiveLocation> archive_entries;
     std::vector<InstallEntry> selected_entries;
     std::uint64_t total_bytes{};
+    std::string locale;
+
+    // Local CASC storage (products whose build exposes a TVFS vfs-root).
+    bool casc{false};
+    std::vector<VfsFile> vfs_files;             // every virtual file of the build
+    std::vector<std::string> selected_locales;  // lower-case locale ids kept in the storage
+    std::vector<DataObject> data_objects;       // objects to store, system manifests first
+    std::uint64_t data_bytes{};
+    std::size_t unresolved_spans{};             // TVFS spans whose full EKey could not be found
 };
 
 } // namespace openblizz

@@ -24,12 +24,13 @@ Usage:
   openblizz products
   openblizz versions <product> [--region us]
   openblizz cdns <product> [--region us]
-  openblizz plan <product> [--region us] [--locale enUS]
+  openblizz plan <product> [--region us] [--locale enUS] [--all-locales] [--no-data]
   openblizz vfs manifests <product> [--region us]
   openblizz vfs list <product> [--region us] [--root war3.w3mod] [--manifests-only] [--summary]
-  openblizz install <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS] [--jobs 4] [--limit N] [--force]
+  openblizz install <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS]
+                    [--all-locales] [--no-data] [--jobs 4] [--limit N] [--data-limit BYTES] [--force]
   openblizz update <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS] [--jobs 4]
-  openblizz verify <product> --directory DIR [--region us] [--locale enUS]
+  openblizz verify <product> --directory DIR [--region us] [--locale enUS] [--all-locales] [--deep]
   openblizz repair <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS] [--jobs 4]
   openblizz login --client-id ID --redirect-uri URI [--scope openid] [--secret-env ENV]
                   [--token-file PATH]
@@ -45,12 +46,17 @@ Usage:
                          [--cookie-jar PATH] [--account-host account.battle.net] [--dump PATH]
                          [--entitlement-url HTTPS_URL] [--token-file PATH]
   openblizz launch --directory DIR --exe GAME.exe [--prefix PREFIX]
-                   [--backend proton|umu|wine|native] [--proton GE-Proton]
+                   [--backend proton|umu|wine|native] [--proton GE-Proton] [-- GAME_ARGS...]
 
 The login command authenticates in the browser through official Battle.net OAuth.
 The agent-login command is the optional legacy Battle.net UI fallback.
 The vfs commands mount the TVFS manifests of the current build (vfs-root plus
 the nested vfs-N manifests) and list the virtual files they describe.
+For products with a TVFS root (Warcraft III: Reforged), install also fills the
+local CASC storage (Data/data, Data/config, Data/indices, .build.info) with the
+game data for enUS plus --locale; --all-locales keeps every language and
+--no-data restores the old executables-only behaviour. Warcraft III expects
+"-launch" to start without the Battle.net app: launch ... -- -launch
 )";
 }
 
@@ -104,11 +110,24 @@ void print_plan(const ob::InstallPlan& plan) {
     std::cout << "selected files: " << plan.selected_entries.size() << '\n';
     std::cout << "selected bytes: " << plan.total_bytes << '\n';
     std::cout << "encoding mappings: " << plan.mappings.size() << '\n';
+    if (plan.casc) {
+        std::cout << "casc locales:";
+        for (const auto& locale : plan.selected_locales) std::cout << ' ' << locale;
+        std::cout << '\n';
+        std::cout << "casc virtual files: " << plan.vfs_files.size() << '\n';
+        std::cout << "casc objects: " << plan.data_objects.size() << '\n';
+        std::cout << "casc bytes: " << plan.data_bytes << '\n';
+        if (plan.unresolved_spans != 0) std::cout << "casc unresolved spans: " << plan.unresolved_spans << '\n';
+    }
 }
 
 ob::InstallPlan make_plan(ob::Installer& installer, const std::string& product,
                           const std::vector<std::string>& args) {
-    return installer.plan(product, option(args, "--region", "us"), option(args, "--locale", "enUS"));
+    ob::PlanOptions options;
+    options.all_locales = has_flag(args, "--all-locales");
+    options.skip_data = has_flag(args, "--no-data");
+    if (const auto limit = option(args, "--data-limit"); !limit.empty()) options.data_limit = std::stoull(limit);
+    return installer.plan(product, option(args, "--region", "us"), option(args, "--locale", "enUS"), options);
 }
 
 int vfs_command(ob::Installer& installer, const std::vector<std::string>& args) {
@@ -301,6 +320,9 @@ int main(int argc, char** argv) {
             launch.executable = option(args, "--exe");
             launch.proton_path = option(args, "--proton", "GE-Proton");
             launch.backend = option(args, "--backend", "proton");
+            if (const auto separator = std::find(args.begin(), args.end(), "--"); separator != args.end()) {
+                launch.arguments.assign(separator + 1, args.end());
+            }
             return ob::Runner::launch(launch);
         }
 
@@ -381,7 +403,7 @@ int main(int argc, char** argv) {
                 const auto completed = installer.install(plan, directory, locale, jobs(args));
                 std::cout << "Files processed: " << completed << '\n';
             } else if (command == "verify") {
-                const auto failures = installer.verify(plan, directory, locale);
+                const auto failures = installer.verify(plan, directory, locale, has_flag(args, "--deep"));
                 for (const auto& failure : failures) std::cout << failure << '\n';
                 return failures.empty() ? 0 : 2;
             } else {

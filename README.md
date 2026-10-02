@@ -179,6 +179,21 @@ The native installer can use the OAuth identity without starting Battle.net:
 This verifies the OAuth identity and downloads public TACT/NGDP content. Since
 Blizzard does not document a public entitlement endpoint, OpenBlizz prints a
 warning and does not claim that ownership was independently verified.
+For Warcraft III: Reforged the install manifest only covers the executables.
+The game data lives in a local CASC storage that `Warcraft III.exe` opens at
+startup, so `install` also mounts the TVFS manifests of the build
+(`vfs-root` -> `war3.w3mod` -> nested `vfs-N`), downloads every referenced
+object through the CDN archives and writes `Data/data/*.idx` + `data.NNN`,
+`Data/config`, `Data/indices` and `.build.info`. By default only `enUS` plus
+`--locale` are stored (about 35 GB for enUS); `--all-locales` keeps every
+`_locales/*.w3mod` and `--no-data` restores the executables-only behaviour.
+Interrupted downloads resume, `verify --deep` re-hashes every stored object,
+and `repair` re-downloads missing or damaged ones. The TVFS contents can be
+inspected without installing:
+```bash
+./build/openblizz vfs manifests w3
+./build/openblizz vfs list w3 --root war3.w3mod | head
+```
 
 For a one-off token, an environment variable can be used instead of the token
 file:
@@ -193,11 +208,13 @@ Run a Windows game executable through Proton/umu:
 
 ```bash
 ./build/openblizz launch \
-  --directory "$HOME/Games/Warcraft3" \
+  --directory "$HOME/Games/Warcraft3/x86_64" \
   --exe "Warcraft III.exe" \
   --prefix "$HOME/Games/openblizz/warcraft3" \
-  --proton GE-Proton
+  --proton GE-Proton -- -launch
 ```
+Arguments after `--` are passed to the game; Warcraft III needs `-launch` to
+start without the Battle.net app.
 
 ## Authentication boundary
 
