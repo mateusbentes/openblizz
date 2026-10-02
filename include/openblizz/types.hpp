@@ -156,6 +156,43 @@ struct ArchiveLocation {
     std::uint32_t encoded_size{};
 };
 
+struct VfsSpanRef {
+    std::uint32_t file_offset{};
+    std::uint32_t content_size{};
+    std::string encoding_key;   // truncated (usually 9 bytes) hex EKey from the TVFS
+    std::uint32_t encoded_size{};
+    std::string content_key;    // full CKey when the manifest includes it, else empty
+};
+
+// One file of the mounted virtual file system. Nested manifests are joined
+// with ':' exactly like CascLib ("war3.w3mod:_hd.w3mod:units/...").
+struct VfsFile {
+    std::string path;
+    std::string manifest;          // build-config key of the manifest listing it ("vfs-root", "vfs-8")
+    std::string nested_manifest;   // non-empty when the entry is itself a nested TVFS ("vfs-2")
+    std::vector<VfsSpanRef> spans;
+
+    [[nodiscard]] std::uint64_t content_size() const {
+        std::uint64_t total = 0;
+        for (const auto& span : spans) total += span.content_size;
+        return total;
+    }
+
+    [[nodiscard]] std::uint64_t encoded_size() const {
+        std::uint64_t total = 0;
+        for (const auto& span : spans) total += span.encoded_size;
+        return total;
+    }
+};
+
+struct BuildContext {
+    ProductDescriptor product;
+    VersionInfo version;
+    CdnInfo cdn;
+    ConfigFile build_config;
+    ConfigFile cdn_config;
+};
+
 struct InstallPlan {
     ProductDescriptor product;
     VersionInfo version;

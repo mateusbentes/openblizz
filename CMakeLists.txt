@@ -20,6 +20,7 @@ add_library(openblizz_core
     src/formats.cpp
     src/catalog.cpp
     src/installer.cpp
+    src/tvfs.cpp
     src/runner.cpp
     src/auth.cpp
     src/library.cpp

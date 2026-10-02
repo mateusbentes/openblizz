@@ -1,6 +1,7 @@
 #include "openblizz/formats.hpp"
 #include "openblizz/hash.hpp"
 #include "openblizz/library.hpp"
+#include "openblizz/tvfs.hpp"
 
 #include <cassert>
 #include <cstdint>
@@ -60,6 +61,83 @@ std::vector<std::uint8_t> multi_chunk(const std::string& payload) {
     encoded.push_back('N');
     encoded.insert(encoded.end(), payload.begin(), payload.end());
     return encoded;
+}
+
+// Builds a minimal TVFS manifest (9-byte EKeys, CKeys included) with the
+// files "a.txt" (EKey 01..) and "dir/sub/b.bin" (EKey 02..). `first` seeds
+// the EKeys so two manifests can be told apart.
+std::vector<std::uint8_t> make_tvfs(std::uint8_t first) {
+    std::vector<std::uint8_t> path;
+    const auto fragment = [&](const std::string& name) {
+        path.push_back(static_cast<std::uint8_t>(name.size()));
+        path.insert(path.end(), name.begin(), name.end());
+    };
+    std::vector<std::uint8_t> folder;   // body of "dir"
+    folder.push_back(0);                // separator before the first child
+    fragment("sub");
+    folder.insert(folder.end(), path.begin(), path.end());
+    path.clear();
+    folder.push_back(0);                // "sub/" then the file name fragment
+    fragment("b.bin");
+    folder.insert(folder.end(), path.begin(), path.end());
+    path.clear();
+    folder.push_back(0xff);
+    put_u32(folder, 10);                // VFS table offset of the second entry
+
+    std::vector<std::uint8_t> body;
+    fragment("a.txt");
+    body.insert(body.end(), path.begin(), path.end());
+    path.clear();
+    body.push_back(0xff);
+    put_u32(body, 0);
+    fragment("dir");
+    body.insert(body.end(), path.begin(), path.end());
+    path.clear();
+    body.push_back(0xff);
+    put_u32(body, 0x80000000u | static_cast<std::uint32_t>(folder.size() + 4));
+    body.insert(body.end(), folder.begin(), folder.end());
+
+    std::vector<std::uint8_t> path_table{0xff};
+    put_u32(path_table, 0x80000000u | static_cast<std::uint32_t>(body.size() + 4));
+    path_table.insert(path_table.end(), body.begin(), body.end());
+
+    std::vector<std::uint8_t> cft;
+    const auto container = [&](std::uint8_t seed, std::uint32_t encoded_size, std::uint32_t content_size) {
+        for (std::uint8_t i = 0; i < 9; ++i) cft.push_back(static_cast<std::uint8_t>(seed + i));
+        put_u32(cft, encoded_size);
+        put_u32(cft, content_size);
+        for (std::uint8_t i = 0; i < 16; ++i) cft.push_back(static_cast<std::uint8_t>(0xc0 + seed + i));
+    };
+    container(first, 7, 10);
+    container(static_cast<std::uint8_t>(first + 1), 15, 20);
+
+    std::vector<std::uint8_t> vfs;
+    vfs.push_back(1);
+    put_u32(vfs, 0);
+    put_u32(vfs, 10);
+    vfs.push_back(0);     // CFT offset of entry 0 (1 byte: the table is < 256 bytes)
+    vfs.push_back(1);
+    put_u32(vfs, 0);
+    put_u32(vfs, 20);
+    vfs.push_back(33);
+    assert(vfs.size() == 20);
+
+    std::vector<std::uint8_t> out{'T', 'V', 'F', 'S', 1, 38, 9, 0};
+    put_u32(out, openblizz::kTvfsIncludeCKey);
+    const std::uint32_t path_offset = 38;
+    const auto vfs_offset = path_offset + static_cast<std::uint32_t>(path_table.size());
+    const auto cft_offset = vfs_offset + static_cast<std::uint32_t>(vfs.size());
+    put_u32(out, path_offset);
+    put_u32(out, static_cast<std::uint32_t>(path_table.size()));
+    put_u32(out, vfs_offset);
+    put_u32(out, static_cast<std::uint32_t>(vfs.size()));
+    put_u32(out, cft_offset);
+    put_u32(out, static_cast<std::uint32_t>(cft.size()));
+    put_u16(out, 3);
+    out.insert(out.end(), path_table.begin(), path_table.end());
+    out.insert(out.end(), vfs.begin(), vfs.end());
+    out.insert(out.end(), cft.begin(), cft.end());
+    return out;
 }
 
 } // namespace
@@ -190,6 +268,37 @@ int main() {
     const auto header = openblizz::LibraryManager::cookie_header_from_netscape_file(cookie_path, "account.battle.net");
     assert(header == "JSESSIONID=abc; sessionTrackingId=xyz");
     std::filesystem::remove(cookie_path);
+
+    const auto tvfs = openblizz::parse_tvfs(make_tvfs(0x01));
+    assert(tvfs.ekey_size == 9);
+    assert(tvfs.entries.size() == 2);
+    assert(tvfs.entries[0].path == "a.txt");
+    assert(tvfs.entries[0].spans.size() == 1);
+    assert(tvfs.entries[0].spans[0].encoding_key == "010203040506070809");
+    assert(tvfs.entries[0].spans[0].encoded_size == 7);
+    assert(tvfs.entries[0].spans[0].content_size == 10);
+    assert(tvfs.entries[0].spans[0].content_key == "c1c2c3c4c5c6c7c8c9cacbcccdcecfd0");
+    assert(tvfs.entries[1].path == "dir/sub/b.bin");
+    assert(tvfs.entries[1].spans[0].encoding_key == "02030405060708090a");
+    assert(tvfs.entries[1].spans[0].content_size == 20);
+
+    // vfs-1's EKey starts with the EKey of "a.txt" in vfs-root, so the
+    // resolver must mount it as a nested manifest.
+    const auto vfs_config = openblizz::parse_config(
+        "vfs-root = 00000000000000000000000000000000 ffffffffffffffffffffffffffffffff\n"
+        "vfs-root-size = 10 20\n"
+        "vfs-1 = 11111111111111111111111111111111 01020304050607080900000000000000\n");
+    const auto refs = openblizz::vfs_manifest_refs(vfs_config);
+    assert(refs.size() == 2 && refs[0].name == "vfs-root" && refs[0].content_size == 10);
+    const auto vfs_files = openblizz::VfsResolver::resolve(vfs_config, [](const openblizz::VfsManifestRef& ref) {
+        return make_tvfs(ref.name == "vfs-root" ? 0x01 : 0x41);
+    });
+    assert(vfs_files.size() == 4);
+    assert(vfs_files[0].path == "a.txt" && vfs_files[0].nested_manifest == "vfs-1");
+    assert(vfs_files[1].path == "a.txt:a.txt" && vfs_files[1].manifest == "vfs-1");
+    assert(vfs_files[1].spans[0].encoding_key == "414243444546474849");
+    assert(vfs_files[2].path == "a.txt:dir/sub/b.bin");
+    assert(vfs_files[3].path == "dir/sub/b.bin" && vfs_files[3].nested_manifest.empty());
 
     std::cout << "OpenBlizz core tests passed\n";
     return 0;

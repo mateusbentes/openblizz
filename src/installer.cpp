@@ -1,5 +1,6 @@
 #include "openblizz/installer.hpp"
 #include "openblizz/hash.hpp"
+#include "openblizz/tvfs.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -91,9 +92,8 @@ std::vector<InstallEntry> Installer::select_entries(const InstallManifest& manif
     return selected;
 }
 
-InstallPlan Installer::plan(const std::string& product, const std::string& region,
-                            const std::string& locale) const {
-    InstallPlan result;
+BuildContext Installer::context(const std::string& product, const std::string& region) const {
+    BuildContext result;
     result.product = find_product(catalog_.products(), product);
     result.version = catalog_.version(product, region);
     result.cdn = catalog_.select_cdn(product, region);
@@ -102,6 +102,63 @@ InstallPlan Installer::plan(const std::string& product, const std::string& regio
     const auto cdn_bytes = catalog_.fetch_config(result.cdn, result.version.cdn_config);
     result.build_config = parse_config(std::string(reinterpret_cast<const char*>(build_bytes.data()), build_bytes.size()));
     result.cdn_config = parse_config(std::string(reinterpret_cast<const char*>(cdn_bytes.data()), cdn_bytes.size()));
+    return result;
+}
+
+std::vector<VfsFile> Installer::vfs_files(const BuildContext& context) const {
+    const std::unordered_map<std::string, ArchiveLocation> no_archives;
+    // Manifests are small loose CDN objects; fetching ~110 of them one by one
+    // is latency bound, so warm the cache with a few parallel workers first.
+    {
+        const auto refs = vfs_manifest_refs(context.build_config);
+        std::atomic<std::size_t> next{0};
+        std::mutex failure_mutex;
+        std::exception_ptr failure;
+        const auto worker = [&]() {
+            try {
+                while (true) {
+                    const auto index = next.fetch_add(1);
+                    if (index >= refs.size()) break;
+                    if (refs[index].encoding_key.empty()) continue;
+                    (void)content(context.cdn, no_archives, refs[index].encoding_key);
+                }
+            } catch (...) {
+                std::lock_guard lock(failure_mutex);
+                if (!failure) failure = std::current_exception();
+            }
+        };
+        std::vector<std::thread> workers;
+        for (std::size_t i = 0; i < std::min<std::size_t>(8, std::max<std::size_t>(1, refs.size())); ++i) {
+            workers.emplace_back(worker);
+        }
+        for (auto& thread : workers) thread.join();
+        if (failure) std::rethrow_exception(failure);
+    }
+    return VfsResolver::resolve(context.build_config, [&](const VfsManifestRef& ref) {
+        if (ref.encoding_key.empty()) {
+            throw std::runtime_error("manifest " + ref.name + " has no encoding key in the build config");
+        }
+        auto decoded = content(context.cdn, no_archives, ref.encoding_key);
+        if (md5_hex(decoded) != ref.content_key) {
+            std::error_code error;
+            std::filesystem::remove(cache_path(ref.encoding_key), error);
+            throw std::runtime_error("content hash mismatch for manifest " + ref.name);
+        }
+        return decoded;
+    });
+}
+
+InstallPlan Installer::plan(const std::string& product, const std::string& region,
+                            const std::string& locale) const {
+    InstallPlan result;
+    {
+        auto base = context(product, region);
+        result.product = std::move(base.product);
+        result.version = std::move(base.version);
+        result.cdn = std::move(base.cdn);
+        result.build_config = std::move(base.build_config);
+        result.cdn_config = std::move(base.cdn_config);
+    }
 
     const auto archive_hashes = result.cdn_config.get("archives");
     if (!archive_hashes.empty()) {

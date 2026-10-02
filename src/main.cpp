@@ -3,6 +3,7 @@
 #include "openblizz/installer.hpp"
 #include "openblizz/library.hpp"
 #include "openblizz/runner.hpp"
+#include "openblizz/tvfs.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -24,6 +25,8 @@ Usage:
   openblizz versions <product> [--region us]
   openblizz cdns <product> [--region us]
   openblizz plan <product> [--region us] [--locale enUS]
+  openblizz vfs manifests <product> [--region us]
+  openblizz vfs list <product> [--region us] [--root war3.w3mod] [--manifests-only] [--summary]
   openblizz install <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS] [--jobs 4] [--limit N] [--force]
   openblizz update <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS] [--jobs 4]
   openblizz verify <product> --directory DIR [--region us] [--locale enUS]
@@ -46,6 +49,8 @@ Usage:
 
 The login command authenticates in the browser through official Battle.net OAuth.
 The agent-login command is the optional legacy Battle.net UI fallback.
+The vfs commands mount the TVFS manifests of the current build (vfs-root plus
+the nested vfs-N manifests) and list the virtual files they describe.
 )";
 }
 
@@ -104,6 +109,67 @@ void print_plan(const ob::InstallPlan& plan) {
 ob::InstallPlan make_plan(ob::Installer& installer, const std::string& product,
                           const std::vector<std::string>& args) {
     return installer.plan(product, option(args, "--region", "us"), option(args, "--locale", "enUS"));
+}
+
+int vfs_command(ob::Installer& installer, const std::vector<std::string>& args) {
+    if (args.size() < 2) throw std::runtime_error("vfs requires manifests or list followed by a product id");
+    const auto subcommand = args[0];
+    const auto product = args[1];
+    const auto context = installer.context(product, option(args, "--region", "us"));
+    std::cout << "product: " << context.product.id << " (" << context.product.name << ")\n";
+    std::cout << "version: " << context.version.version_name << " (build " << context.version.build_id << ")\n";
+    if (subcommand == "manifests") {
+        const auto refs = ob::vfs_manifest_refs(context.build_config);
+        if (refs.empty()) throw std::runtime_error("product " + product + " exposes no TVFS manifests");
+        std::cout << "name\tcontent_key\tencoding_key\tcontent_size\tencoded_size\n";
+        for (const auto& ref : refs) {
+            std::cout << ref.name << '\t' << ref.content_key << '\t' << ref.encoding_key << '\t'
+                      << ref.content_size << '\t' << ref.encoded_size << '\n';
+        }
+        return 0;
+    }
+    if (subcommand != "list") throw std::runtime_error("unknown vfs command: " + subcommand);
+
+    const auto files = installer.vfs_files(context);
+    auto root = option(args, "--root");
+    std::transform(root.begin(), root.end(), root.begin(), [](unsigned char c) { return std::tolower(c); });
+    const bool manifests_only = has_flag(args, "--manifests-only");
+    const bool summary = has_flag(args, "--summary");
+    std::size_t listed = 0;
+    std::size_t nested = 0;
+    std::uint64_t content_bytes = 0;
+    std::uint64_t encoded_bytes = 0;
+    if (!summary) std::cout << "path\tmanifest\tcontent_size\tencoded_size\tekey\tckey\n";
+    for (const auto& file : files) {
+        const bool inside_root = root.empty() || file.path == root || file.path.rfind(root + ":", 0) == 0;
+        if (!inside_root) continue;
+        if (!file.nested_manifest.empty()) ++nested;
+        if (manifests_only && file.nested_manifest.empty()) continue;
+        ++listed;
+        if (file.nested_manifest.empty()) {
+            content_bytes += file.content_size();
+            encoded_bytes += file.encoded_size();
+        }
+        if (summary) continue;
+        std::cout << file.path << '\t'
+                  << (file.nested_manifest.empty() ? file.manifest : file.manifest + "->" + file.nested_manifest) << '\t'
+                  << file.content_size() << '\t' << file.encoded_size() << '\t';
+        for (std::size_t i = 0; i < file.spans.size(); ++i) {
+            if (i != 0) std::cout << ',';
+            std::cout << file.spans[i].encoding_key;
+        }
+        std::cout << '\t';
+        for (std::size_t i = 0; i < file.spans.size(); ++i) {
+            if (i != 0) std::cout << ',';
+            std::cout << file.spans[i].content_key;
+        }
+        std::cout << '\n';
+    }
+    std::cout << "virtual files: " << listed << '\n';
+    std::cout << "nested manifests: " << nested << '\n';
+    std::cout << "content bytes: " << content_bytes << '\n';
+    std::cout << "encoded bytes: " << encoded_bytes << '\n';
+    return 0;
 }
 
 } // namespace
@@ -240,6 +306,10 @@ int main(int argc, char** argv) {
 
         ob::HttpClient http;
         ob::Catalog catalog(http);
+        if (command == "vfs") {
+            ob::Installer installer(catalog, default_cache());
+            return vfs_command(installer, args);
+        }
         if (command == "versions" || command == "cdns") {
             if (args.empty()) throw std::runtime_error(command + " requires a product id");
             const auto product = args.front();
