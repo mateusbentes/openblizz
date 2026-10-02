@@ -1,4 +1,5 @@
 #include "openblizz/auth.hpp"
+#include "openblizz/browser_login.hpp"
 #include "openblizz/catalog.hpp"
 #include "openblizz/installer.hpp"
 #include "openblizz/library.hpp"
@@ -32,7 +33,8 @@ Usage:
   openblizz update <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS] [--jobs 4]
   openblizz verify <product> --directory DIR [--region us] [--locale enUS] [--all-locales] [--deep]
   openblizz repair <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS] [--jobs 4]
-  openblizz login --client-id ID --redirect-uri URI [--scope openid] [--secret-env ENV]
+  openblizz login [--browser-exe PATH] [--timeout 600] [--keep-browser] [--cookie-jar PATH]
+  openblizz login --oauth --client-id ID --redirect-uri URI [--scope openid] [--secret-env ENV]
                   [--token-file PATH]
   openblizz agent-login --prefix PREFIX [--backend auto|umu|wine] [--proton GE-Proton]
                         [--installer Battle.Net-Setup.exe]
@@ -48,7 +50,10 @@ Usage:
   openblizz launch --directory DIR --exe GAME.exe [--prefix PREFIX]
                    [--backend proton|umu|wine|native] [--proton GE-Proton] [-- GAME_ARGS...]
 
-The login command authenticates in the browser through official Battle.net OAuth.
+The login command opens an isolated Chromium-family browser window on the official
+Battle.net login page, waits until you finish (password, MFA, captcha), keeps the
+session cookies with owner-only permissions, closes the window and scans your
+library. --oauth with a developer client id uses Battle.net OAuth instead.
 The agent-login command is the optional legacy Battle.net UI fallback.
 The vfs commands mount the TVFS manifests of the current build (vfs-root plus
 the nested vfs-N manifests) and list the virtual files they describe.
@@ -293,6 +298,27 @@ int main(int argc, char** argv) {
             if (auth.oauth_client_id.empty()) {
                 if (const auto* value = std::getenv("OPENBLIZZ_CLIENT_ID"); value != nullptr) auth.oauth_client_id = value;
             }
+            const bool want_oauth = command == "oauth-login" || has_flag(args, "--oauth") ||
+                                    (!auth.oauth_client_id.empty() && !has_flag(args, "--browser"));
+            if (!want_oauth) {
+                // Default: steamcmd-like interactive login in an isolated browser window.
+                ob::BrowserLoginOptions browser;
+                browser.browser = option(args, "--browser-exe");
+                browser.account_host = option(args, "--account-host", "account.battle.net");
+                browser.timeout_seconds = std::stoi(option(args, "--timeout", "600"));
+                browser.keep_browser_open = has_flag(args, "--keep-browser");
+                if (const auto jar = option(args, "--cookie-jar"); !jar.empty()) browser.cookie_jar = jar;
+                if (const auto profile = option(args, "--profile-dir"); !profile.empty()) browser.profile_dir = profile;
+                const auto jar = ob::BrowserLogin::run(browser);
+                ob::HttpClient http;
+                ob::Catalog catalog(http);
+                ob::LibraryScanOptions scan_options;
+                scan_options.web_session.cookie_file = jar;
+                scan_options.web_session.cookie_jar = jar;
+                scan_options.web_session.host = browser.account_host;
+                std::cout << "Scanning your Battle.net library.\n";
+                return ob::LibraryManager::scan(catalog, ob::AuthOptions{}, library_file(args), scan_options);
+            }
             const auto secret_env = option(args, "--secret-env", "OPENBLIZZ_CLIENT_SECRET");
             if (const auto* value = std::getenv(secret_env.c_str()); value != nullptr) auth.oauth_client_secret = value;
             auth.oauth_redirect_uri = option(args, "--redirect-uri");
@@ -372,7 +398,17 @@ int main(int argc, char** argv) {
                 auth.oauth_token_file = option(args, "--token-file");
                 const auto token_env = option(args, "--token-env", "OPENBLIZZ_OAUTH_TOKEN");
                 if (const auto* token = std::getenv(token_env.c_str()); token != nullptr) auth.oauth_token = token;
-                ob::AuthManager::require_authenticated(auth, product);
+                try {
+                    ob::AuthManager::require_authenticated(auth, product);
+                } catch (const std::exception& error) {
+                    // Accept the Battle.net account session captured by `openblizz login`.
+                    const auto jar = ob::LibraryManager::default_cookie_jar();
+                    if (!ob::BrowserLogin::session_authenticated(jar, "account.battle.net")) {
+                        throw std::runtime_error(std::string(error.what()) +
+                                                 "; no valid Battle.net account session either (run `openblizz login`)");
+                    }
+                    std::cout << "Authentication: Battle.net account session verified\n";
+                }
                 const auto library_path = library_file(args);
                 ob::LibraryManager::auto_refresh(catalog, library_path, ob::LibraryManager::default_cookie_jar(), 6 * 3600);
                 const auto ownership = ob::LibraryManager::ownership_of(library_path, product);

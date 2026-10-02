@@ -1,4 +1,5 @@
 #include "openblizz/casc.hpp"
+#include "openblizz/browser_login.hpp"
 #include "openblizz/formats.hpp"
 #include "openblizz/hash.hpp"
 #include "openblizz/library.hpp"
@@ -373,7 +374,7 @@ int main() {
             openblizz::CascStorage storage(casc_root);
             storage.open();
             assert(storage.size() == 2);
-            assert(storage.contains(key_a) && storage.contains(key_b) && !storage.contains("00" + key_a.substr(2)));
+            assert(storage.contains(key_a) && storage.contains(key_b) && !storage.contains("01" + key_a.substr(2)));
             const auto entry = storage.find(key_b);
             assert(entry && entry->archive == 0 && entry->offset == 30 + blob_a.size() && entry->size == 30 + blob_b.size());
             assert(storage.read(*entry) == blob_b);
@@ -401,5 +402,23 @@ int main() {
            "Windows x86_64 US? enUS speech?:Windows x86_64 US enUS text?");
 
     std::cout << "OpenBlizz core tests passed\n";
+    {
+        using openblizz::BrowserLogin;
+        assert(BrowserLogin::looks_logged_in("https://account.battle.net/games", "account.battle.net"));
+        assert(BrowserLogin::looks_logged_in("https://account.battle.net/", "account.battle.net"));
+        assert(!BrowserLogin::looks_logged_in("https://account.battle.net/login/en-us/", "account.battle.net"));
+        assert(!BrowserLogin::looks_logged_in("https://eu.account.battle.net/login/en-us/?ref=x", "account.battle.net"));
+        assert(!BrowserLogin::looks_logged_in("https://account.battle.net/oauth2/authorization/account-settings", "account.battle.net"));
+        assert(!BrowserLogin::looks_logged_in("https://oauth.battle.net/authorize?x=1", "account.battle.net"));
+        const auto cookies = BrowserLogin::parse_devtools_cookies(R"({"cookies":[
+            {"name":"login.key","value":"abc","domain":".battle.net","path":"/","expires":1900000000,"secure":true,"httpOnly":true},
+            {"name":"SESSIONID","value":"s","domain":"account.battle.net","path":"/","expires":-1,"secure":true,"httpOnly":false},
+            {"name":"other","value":"x","domain":".example.com","path":"/","expires":-1,"secure":false,"httpOnly":false}]})");
+        assert(cookies.size() == 3);
+        const auto jar = BrowserLogin::netscape_jar(cookies, "battle.net");
+        assert(jar.find("#HttpOnly_.battle.net\tTRUE\t/\tTRUE\t1900000000\tlogin.key\tabc\n") != std::string::npos);
+        assert(jar.find("account.battle.net\tFALSE\t/\tTRUE\t2147483647\tSESSIONID\ts\n") != std::string::npos);
+        assert(jar.find("example.com") == std::string::npos);
+    }
     return 0;
 }

@@ -18,6 +18,30 @@ OpenBlizz does not distribute Battle.net, Agent.exe, game files, private keys, o
 
 This repository is an early, buildable implementation. The NGDP/Ribbit catalog, CDN configuration retrieval, BLTE decoding, install/download manifest parsing, local caching, verification primitives, authentication hand-off, and Proton/Wine runner are implemented incrementally. Product-specific CASC/TVFS installation and entitlement backends are deliberately covered by tests and explicit capability checks rather than silently claiming unsupported behavior.
 
+## Logging in (steamcmd-like)
+
+```bash
+./build/openblizz login
+```
+
+`login` opens an **isolated** Chromium-family browser window (Chromium, Chrome,
+Brave, Edge or Vivaldi; override with `--browser-exe` or `OPENBLIZZ_BROWSER`)
+on the official Battle.net login page. Complete the login there, including
+authenticator/MFA and captcha. OpenBlizz never sees the password: when the
+account page loads, it reads the resulting session cookies through the
+browser's local DevTools endpoint, verifies them against
+`account.battle.net/api/`, stores them with owner-only permissions at
+`~/.config/openblizz/battlenet-cookies.txt`, closes that browser window and
+scans your library. The dedicated profile lives in
+`~/.config/openblizz/browser-profile` and is never shared with your normal
+browser.
+
+From then on `library list`, `install`, `update` and `repair` renew the
+session automatically; no cookie export is needed. The manual
+`library scan --cookie-file cookies.txt` path remains available as a fallback
+(for example when only Firefox is installed), and `login --oauth --client-id ...`
+still performs the Battle.net OAuth developer flow.
+
 ## Build on Debian/Ubuntu
 
 ```bash
