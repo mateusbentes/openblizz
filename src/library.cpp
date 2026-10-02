@@ -544,6 +544,13 @@ int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
                     throw std::runtime_error("session renewal ended with HTTP " + std::to_string(renew.status) +
                                              "; log in again in the browser and re-export cookies.txt");
                 }
+                if (renew.effective_url.find("/login/") != std::string::npos) {
+                    throw std::runtime_error(
+                        "battle.net asked for a password: the persistent login cookies in this export were "
+                        "rejected (they rotate on every use and expire). Log in again at "
+                        "https://account.battle.net/games in the browser, export a fresh cookies.txt for the "
+                        "whole battle.net domain, and run the scan with --cookie-jar so the rotated cookies are kept.");
+                }
                 games = browser.get(base + "/api/games-and-subs", headers);
             }
             if (!is_json(games)) {
