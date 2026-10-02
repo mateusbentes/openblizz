@@ -469,5 +469,21 @@ int main() {
         assert(BrowserLogin::engine_for_name("google-chrome") == openblizz::BrowserEngine::Chromium);
         assert(BrowserLogin::engine_for_name("brave-browser") == openblizz::BrowserEngine::Chromium);
     }
+
+    {
+        // Storefront navigation menu and family cards (synthetic Next.js flight payload).
+        const std::string html =
+            "<script>self.__next_f.push([1,\"{\\\"text\\\":\\\"Blizzard Arcade Collection\\\",\\\"destination\\\":\\\"/product/blizzard-arcade-collection\\\",\\\"category\\\":\\\"Bundle\\\"}"
+            ",{\\\"text\\\":\\\"Warcraft\\\",\\\"destination\\\":\\\"/family/warcraft-rts\\\",\\\"category\\\":\\\"Real-time Strategy\\\"}"
+            ",{\\\"text\\\":\\\"Support\\\",\\\"destination\\\":\\\"https://support.example\\\",\\\"category\\\":\\\"x\\\"}"
+            ",{\\\"cmsId\\\":\\\"blt1\\\",\\\"order\\\":0,\\\"slug\\\":\\\"warcraft-1-remastered\\\",\\\"productIds\\\":[1],\\\"subscriptionIds\\\":[],\\\"title\\\":\\\"Warcraft\\u00ae I: Remastered\\\",\\\"franchiseIcon\\\":{\\\"name\\\":\\\"Warcraft\\\"}}\"])</script>";
+        const auto games = openblizz::LibraryManager::parse_shop_games(html);
+        assert((games.size() == 2));
+        assert((games[0].name == "Blizzard Arcade Collection" && games[0].franchise == "Bundle"));
+        const auto cards = openblizz::LibraryManager::parse_shop_family(html);
+        assert((cards.size() == 1 && cards[0].slug == "/product/warcraft-1-remastered"));
+        assert((cards[0].name == "Warcraft\xC2\xAE I: Remastered"));
+        assert((openblizz::LibraryManager::shop_destination_products("/product/blizzard-arcade-collection") == std::vector<std::string>{"rtro"}));
+    }
     return 0;
 }

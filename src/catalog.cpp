@@ -75,6 +75,7 @@ std::vector<ProductDescriptor> Catalog::products() const {
         {"s2", "StarCraft II", "starcraft", "s2", true},
         {"wow", "World of Warcraft", "warcraft", "wow", true},
         {"anbs", "Diablo Immortal", "diablo", "anbs", true},
+        {"rtro", "Blizzard Arcade Collection", "arcade", "rtro", true},
         // Classic CD-key titles still listed by the account page. They are not
         // distributed through NGDP, so they are catalogued for ownership only.
         {"d2-classic", "Diablo II (classic, legacy installer)", "diablo", "", false},

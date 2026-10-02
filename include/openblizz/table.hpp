@@ -65,6 +65,7 @@ inline int family_rank(const std::string& family) {
     if (family == "warcraft") return 0;
     if (family == "starcraft") return 1;
     if (family == "diablo") return 2;
+    if (family == "arcade") return 3;
     if (family.empty()) return 99;
     return 10;
 }
@@ -77,6 +78,7 @@ inline std::string family_label(const std::string& family) {
     if (family == "warcraft") return "Warcraft";
     if (family == "starcraft") return "StarCraft";
     if (family == "diablo") return "Diablo";
+    if (family == "arcade") return "Blizzard Arcade";
     if (family == "overwatch") return "Overwatch";
     if (family == "hearthstone") return "Hearthstone";
     if (family == "callofduty") return "Call of Duty";

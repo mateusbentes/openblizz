@@ -22,7 +22,7 @@ void usage() {
     std::cout << R"(OpenBlizz - independent Blizzard game client
 
 Usage:
-  openblizz products [--all|--shop]    (--all: every NGDP product code; --shop: storefront highlights)
+  openblizz products [--all|--shop [--family SLUG]]   (--all: every NGDP code; --shop: storefront games)
   openblizz versions <product> [--region us]
   openblizz cdns <product> [--region us]
   openblizz plan <product> [--region us] [--locale enUS] [--all-locales] [--no-data]
@@ -206,22 +206,46 @@ int main(int argc, char** argv) {
             ob::HttpClient http;
             ob::Catalog catalog(http);
             if (has_flag(args, "--shop")) {
-                // Public storefront highlights (including third-party titles sold
-                // on Battle.net). Not a full catalog: the shop renders the rest
-                // client-side behind a login.
+                // Battle.net storefront. The "Games" navigation menu is the complete
+                // list of titles sold there (including third-party games); a family
+                // page lists the editions/products of one franchise.
                 ob::CookieSession shop(std::string{});  // the storefront needs cookies across its login redirects
-                const auto page = shop.get("https://us.shop.battle.net/en-us", {
-                    "Accept: text/html",
-                });
-                ob::Table table({"Storefront highlight", "Franchise", "Shop page"});
-                for (const auto& card : ob::LibraryManager::parse_shop_cards(page.body.empty() ? std::string{} : std::string(page.body.begin(), page.body.end()))) {
-                    table.add({card.name, card.franchise, "https://us.shop.battle.net/en-us/product/" + card.slug});
+                const auto family = option(args, "--family");
+                const auto url = "https://us.shop.battle.net/en-us" + (family.empty() ? std::string{} : "/family/" + family);
+                const auto page = shop.get(url, {"Accept: text/html"});
+                const std::string html(page.body.begin(), page.body.end());
+                const auto library = ob::LibraryManager::load(library_file(args));
+                const auto library_status = [&](const std::string& destination) -> std::string {
+                    const auto ids = ob::LibraryManager::shop_destination_products(destination);
+                    if (ids.empty()) return "-";
+                    std::string owned;
+                    for (const auto& entry : library) {
+                        if (std::find(ids.begin(), ids.end(), entry.product_id) == ids.end()) continue;
+                        if (entry.ownership == ob::OwnershipState::Owned || entry.ownership == ob::OwnershipState::Manual) {
+                            owned += (owned.empty() ? "" : ", ") + entry.product_id;
+                        }
+                    }
+                    return owned.empty() ? "not in library" : "owned (" + owned + ")";
+                };
+                if (!family.empty()) {
+                    ob::Table table({"Product", "Franchise", "Library", "Shop page"});
+                    for (const auto& card : ob::LibraryManager::parse_shop_family(html)) {
+                        table.add({card.name, card.franchise, library_status(card.slug), "https://us.shop.battle.net/en-us" + card.slug});
+                    }
+                    if (table.empty()) std::cout << "No products found on family page '" << family << "'.\n";
+                    else table.print();
+                    return 0;
+                }
+                ob::Table table({"Game", "Category", "Library", "Shop page"});
+                for (const auto& card : ob::LibraryManager::parse_shop_games(html)) {
+                    table.add({card.name, card.franchise, library_status(card.slug), "https://us.shop.battle.net/en-us" + card.slug});
                 }
                 if (table.empty()) {
-                    std::cout << "The storefront returned no product highlights.\n";
+                    std::cout << "The storefront returned no game list.\n";
                 } else {
                     table.print();
-                    std::cout << "\nPublic storefront highlights only (not your library). Ownership comes from `openblizz library list`.\n";
+                    std::cout << "\nEvery game sold on the Battle.net storefront (its navigation menu). `--family <slug>` lists the\n"
+                                 "products of one family page. The Library column cross-references your `openblizz library list`.\n";
                 }
                 return 0;
             }

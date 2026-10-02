@@ -331,6 +331,8 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& purchase_ti
         {"warcraftiiiremastered", {"w1r", "w2r"}},
         {"warcraftiandiiremastered", {"w1r", "w2r"}},
         {"warcraftremasteredbattlechest", {"w1r", "w2r"}},
+        {"blizzardarcadecollection", {"rtro"}},
+        {"arcadecollection", {"rtro"}},
         {"warcraftiremastered", {"w1r"}},
         {"warcraftiiremastered", {"w2r"}},
         {"warcraftiiireforged", {"w3"}},
@@ -663,10 +665,127 @@ LibraryManager::PurchaseResult LibraryManager::parse_purchases(
     return result;
 }
 
+namespace {
+// The shop is a Next.js app; its server payload is pushed as JS string
+// literals via self.__next_f.push([1,"..."]). Un-escape them into one buffer.
+std::string shop_flight(const std::string& html) {
+    std::string flight;
+    const std::string marker = "self.__next_f.push([1,\"";
+    for (auto pos = html.find(marker); pos != std::string::npos; pos = html.find(marker, pos)) {
+        pos += marker.size();
+        while (pos < html.size()) {
+            const char c = html[pos];
+            if (c == '\\' && pos + 1 < html.size()) {
+                const char n = html[pos + 1];
+                if (n == 'n') flight.push_back('\n');
+                else if (n == 't') flight.push_back('\t');
+                else if (n == 'u' && pos + 5 < html.size()) {
+                    const auto code = std::stoul(html.substr(pos + 2, 4), nullptr, 16);
+                    if (code < 0x80) flight.push_back(static_cast<char>(code));
+                    else if (code < 0x800) {
+                        flight.push_back(static_cast<char>(0xC0 | (code >> 6)));
+                        flight.push_back(static_cast<char>(0x80 | (code & 0x3F)));
+                    } else {
+                        flight.push_back(static_cast<char>(0xE0 | (code >> 12)));
+                        flight.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F)));
+                        flight.push_back(static_cast<char>(0x80 | (code & 0x3F)));
+                    }
+                    pos += 4;
+                }
+                else flight.push_back(n);
+                pos += 2;
+                continue;
+            }
+            if (c == '"') break;
+            flight.push_back(c);
+            ++pos;
+        }
+    }
+    return flight;
+}
+std::string json_field(const std::string& segment, const std::string& name) {
+    const auto k = "\"" + name + "\":\"";
+    const auto at = segment.find(k);
+    if (at == std::string::npos) return {};
+    const auto end = segment.find('"', at + k.size());
+    return end == std::string::npos ? std::string{} : segment.substr(at + k.size(), end - at - k.size());
+}
+void trim_right(std::string& text) {
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back()))) text.pop_back();
+}
+} // namespace
+
+std::vector<LibraryManager::ShopCard> LibraryManager::parse_shop_games(const std::string& html) {
+    const auto flight = shop_flight(html);
+    std::vector<ShopCard> games;
+    std::set<std::string> seen;
+    const std::string key = "{\"text\":\"";
+    for (auto pos = flight.find(key); pos != std::string::npos; pos = flight.find(key, pos + key.size())) {
+        const auto end = flight.find('}', pos);
+        if (end == std::string::npos) break;
+        const auto segment = flight.substr(pos, end - pos);
+        ShopCard card{json_field(segment, "text"), json_field(segment, "destination"), json_field(segment, "category"), ""};
+        trim_right(card.name);
+        if (card.name.empty() || card.slug.empty() || card.franchise.empty()) continue;
+        if (card.slug.rfind("/family/", 0) != 0 && card.slug.rfind("/product/", 0) != 0) continue;
+        if (!seen.insert(card.name + card.slug).second) continue;
+        games.push_back(card);
+    }
+    return games;
+}
+
+std::vector<LibraryManager::ShopCard> LibraryManager::parse_shop_family(const std::string& html) {
+    const auto flight = shop_flight(html);
+    std::vector<ShopCard> cards;
+    std::set<std::string> seen;
+    const std::string key = "\"productIds\":[";
+    for (auto pos = flight.find(key); pos != std::string::npos; pos = flight.find(key, pos + key.size())) {
+        const auto begin = pos > 200 ? pos - 200 : 0;
+        const auto segment = flight.substr(begin, 700);
+        ShopCard card{json_field(segment.substr(pos - begin), "title"), json_field(segment, "slug"),
+                      json_field(segment.substr(pos - begin), "name"), ""};
+        trim_right(card.name);
+        if (card.name.empty() || card.slug.empty() || !seen.insert(card.slug).second) continue;
+        card.slug = "/product/" + card.slug;
+        cards.push_back(card);
+    }
+    return cards;
+}
+
+std::vector<std::string> LibraryManager::shop_destination_products(const std::string& destination) {
+    static const std::vector<std::pair<std::string, std::vector<std::string>>> table{
+        {"/family/warcraft-rts", {"w3", "w2r", "w1r", "w2bn", "war1"}},
+        {"/product/warcraft-3-reforged", {"w3"}},
+        {"/product/warcraft-remastered-battle-chest", {"w2r", "w1r"}},
+        {"/product/warcraft-1-remastered", {"w1r"}},
+        {"/product/warcraft-2-remastered", {"w2r"}},
+        {"/product/warcraft-orcs-and-humans", {"war1"}},
+        {"/product/warcraft-2-battle-net-edition", {"w2bn"}},
+        {"/product/starcraft-remastered", {"s1"}},
+        {"/product/diablo_ii_resurrected", {"osi"}},
+        {"/product/blizzard-arcade-collection", {"rtro"}},
+        {"/family/starcraft-remastered", {"s1"}},
+        {"/family/starcraft-ii", {"s2"}},
+        {"/family/world-of-warcraft", {"wow"}},
+        {"/family/world-of-warcraft-classic", {"wow_classic"}},
+        {"/product/world-of-warcraft-forever", {"wow"}},
+        {"/family/diablo-immortal", {"anbs"}},
+        {"/family/diablo-ii", {"osi"}},
+        {"/family/diablo-iii", {"d3"}},
+        {"/family/diablo-iv", {"fenris"}},
+        {"/family/overwatch", {"pro"}},
+        {"/family/hearthstone", {"hsb"}},
+        {"/family/heroes-of-the-storm", {"hero"}},
+        {"/family/warcraft-rumble", {"gryphon"}},
+    };
+    for (const auto& [prefix, ids] : table) {
+        if (destination.rfind(prefix, 0) == 0) return ids;
+    }
+    return {};
+}
+
 std::vector<LibraryManager::ShopCard> LibraryManager::parse_shop_cards(const std::string& html) {
-    // The shop is a Next.js app; its server payload is pushed as JS string
-    // literals via self.__next_f.push([1,"..."]). Un-escape them and look for
-    // product cards (productPageName + slug).
+    // Storefront highlights of the home page (productPageName + slug).
     std::string flight;
     const std::string marker = "self.__next_f.push([1,\"";
     for (auto pos = html.find(marker); pos != std::string::npos; pos = html.find(marker, pos)) {

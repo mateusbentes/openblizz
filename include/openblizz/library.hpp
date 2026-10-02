@@ -84,6 +84,14 @@ public:
         std::string app_game_code;
     };
     [[nodiscard]] static std::vector<ShopCard> parse_shop_cards(const std::string& html);
+    // Complete "Games" navigation menu of the storefront (text, destination,
+    // category). Present in every shop page; the category lands in `franchise`
+    // and the destination path in `slug`.
+    [[nodiscard]] static std::vector<ShopCard> parse_shop_games(const std::string& html);
+    // Product cards of a /family/<slug> page (title + product slug).
+    [[nodiscard]] static std::vector<ShopCard> parse_shop_family(const std::string& html);
+    // Known storefront destination -> OpenBlizz product ids (for the Library column).
+    [[nodiscard]] static std::vector<std::string> shop_destination_products(const std::string& destination);
 
     [[nodiscard]] static AccountWebResult parse_account_web(
         const std::string& games_and_subs_body, const std::string& classic_games_body,

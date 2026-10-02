@@ -90,7 +90,10 @@ Output is grouped by franchise (Warcraft, StarCraft, Diablo, ...) in aligned
 tables; `library list` uses the same layout with a Status and Evidence column
 (account page, purchase history, manual). This is the public supported product
 catalog, not an account inventory; `products --all` lists every NGDP product
-code and `products --shop` the public storefront highlights.
+code. `products --shop` lists every game sold on the Battle.net storefront
+(its navigation menu, including third-party titles) with a Library column that
+cross-references your scanned library; `products --shop --family warcraft-rts`
+lists the editions of one family page.
 
 Read the current build and CDN metadata:
 
