@@ -24,7 +24,7 @@ Usage:
   openblizz versions <product> [--region us]
   openblizz cdns <product> [--region us]
   openblizz plan <product> [--region us] [--locale enUS]
-  openblizz install <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS] [--jobs 4] [--limit N]
+  openblizz install <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS] [--jobs 4] [--limit N] [--force]
   openblizz update <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS] [--jobs 4]
   openblizz verify <product> --directory DIR [--region us] [--locale enUS]
   openblizz repair <product> --directory DIR [--prefix PREFIX] [--token-file PATH] [--region us] [--locale enUS] [--jobs 4]
@@ -35,10 +35,10 @@ Usage:
   openblizz auth-status --prefix PREFIX
   openblizz agent-info --prefix PREFIX [--product PRODUCT]
   openblizz account [--token-env OPENBLIZZ_OAUTH_TOKEN]
-  openblizz library list [--library-file PATH]
   openblizz library add <product> [--library-file PATH]
   openblizz library remove <product> [--library-file PATH]
-  openblizz library scan [--cookie-file cookies.txt | --cookie-header 'JSESSIONID=...']
+  openblizz library list [--all] [--library-file PATH]
+  openblizz library scan [--cookie-file cookies.txt | --cookie-header 'JSESSIONID=...'] [--no-cookie-jar]
                          [--cookie-jar PATH] [--account-host account.battle.net] [--dump PATH]
                          [--entitlement-url HTTPS_URL] [--token-file PATH]
   openblizz launch --directory DIR --exe GAME.exe [--prefix PREFIX]
@@ -65,6 +65,10 @@ bool has_option(const std::vector<std::string>& args, const std::string& name) {
 std::size_t jobs(const std::vector<std::string>& args) {
     const auto value = option(args, "--jobs", "4");
     return static_cast<std::size_t>(std::stoull(value));
+}
+
+bool has_flag(const std::vector<std::string>& args, const std::string& name) {
+    return std::find(args.begin(), args.end(), name) != args.end();
 }
 
 std::filesystem::path default_cache() {
@@ -137,7 +141,10 @@ int main(int argc, char** argv) {
             ob::Catalog catalog(http);
             const auto subcommand = args.front();
             const auto path = library_file(args);
-            if (subcommand == "list") return ob::LibraryManager::list(catalog, path);
+            if (subcommand == "list") {
+                ob::LibraryManager::auto_refresh(catalog, path, ob::LibraryManager::default_cookie_jar(), 6 * 3600);
+                return ob::LibraryManager::list(catalog, path, has_flag(args, "--all"));
+            }
             if (subcommand == "add" || subcommand == "remove") {
                 if (args.size() < 2) throw std::runtime_error("library " + subcommand + " requires a product id");
                 return subcommand == "add"
@@ -165,12 +172,22 @@ int main(int argc, char** argv) {
                         cookie_file = configured;
                     }
                 }
+                const auto default_jar = ob::LibraryManager::default_cookie_jar();
+                if (cookie_file.empty() && option(args, "--cookie-header").empty() &&
+                    std::filesystem::is_regular_file(default_jar)) {
+                    cookie_file = default_jar.string();   // reuse the saved session automatically
+                }
                 if (!cookie_file.empty()) {
                     if (!std::filesystem::is_regular_file(cookie_file)) {
                         throw std::runtime_error("cookie file not found: " + cookie_file);
                     }
                     scan_options.web_session.cookie_file = cookie_file;
-                    scan_options.web_session.cookie_jar = option(args, "--cookie-jar");
+                    auto jar = option(args, "--cookie-jar");
+                    if (jar.empty() && !has_flag(args, "--no-cookie-jar")) jar = default_jar.string();
+                    if (!jar.empty() && jar != cookie_file) {
+                        std::filesystem::create_directories(std::filesystem::path(jar).parent_path());
+                    }
+                    scan_options.web_session.cookie_jar = jar;
                 } else {
                     scan_options.web_session.cookie_header = option(args, "--cookie-header");
                 }
@@ -264,6 +281,20 @@ int main(int argc, char** argv) {
                 const auto token_env = option(args, "--token-env", "OPENBLIZZ_OAUTH_TOKEN");
                 if (const auto* token = std::getenv(token_env.c_str()); token != nullptr) auth.oauth_token = token;
                 ob::AuthManager::require_authenticated(auth, product);
+                const auto library_path = library_file(args);
+                ob::LibraryManager::auto_refresh(catalog, library_path, ob::LibraryManager::default_cookie_jar(), 6 * 3600);
+                const auto ownership = ob::LibraryManager::ownership_of(library_path, product);
+                if (ownership == ob::OwnershipState::NotOwned && !has_flag(args, "--force")) {
+                    throw std::runtime_error("your Battle.net account does not own " + product +
+                                             " (library state: not_owned); use --force to override");
+                }
+                if (ownership == ob::OwnershipState::Owned) {
+                    std::cout << "Ownership: " << product << " is in your Battle.net account library.\n";
+                } else if (ownership == ob::OwnershipState::Manual) {
+                    std::cout << "Ownership: " << product << " was added manually to the library.\n";
+                } else {
+                    std::cout << "Warning: ownership of " << product << " is unknown; run library scan once with your account session.\n";
+                }
             }
             auto plan = make_plan(installer, product, args);
             if (const auto limit = option(args, "--limit"); !limit.empty()) {

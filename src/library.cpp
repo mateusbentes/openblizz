@@ -247,8 +247,62 @@ std::vector<EntitlementRecord> LibraryManager::parse_entitlement_response(
     return result;
 }
 
-int LibraryManager::list(const Catalog& catalog, const std::filesystem::path& path) {
-    print_entries(catalog_entries(catalog, load(path)));
+std::filesystem::path LibraryManager::default_cookie_jar() {
+    if (const auto* xdg = std::getenv("XDG_CONFIG_HOME"); xdg != nullptr && *xdg != '\0') {
+        return std::filesystem::path(xdg) / "openblizz" / "battlenet-cookies.txt";
+    }
+    if (const auto* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
+        return std::filesystem::path(home) / ".config" / "openblizz" / "battlenet-cookies.txt";
+    }
+    return std::filesystem::current_path() / "battlenet-cookies.txt";
+}
+
+bool LibraryManager::auto_refresh(const Catalog& catalog, const std::filesystem::path& library_path,
+                                  const std::filesystem::path& cookie_jar, std::int64_t max_age_seconds) {
+    if (cookie_jar.empty() || !std::filesystem::is_regular_file(cookie_jar)) return false;
+    const auto entries = load(library_path);
+    std::int64_t newest = 0;
+    for (const auto& entry : entries) {
+        if (entry.source == "account-web") newest = std::max(newest, entry.updated_at);
+    }
+    if (newest != 0 && now_seconds() - newest < max_age_seconds) return false;
+
+    LibraryScanOptions options;
+    options.web_session.cookie_file = cookie_jar;
+    options.web_session.cookie_jar = cookie_jar;
+    options.quiet = true;
+    try {
+        std::cout << "Refreshing account library from the saved session.\n";
+        (void)scan(catalog, AuthOptions{}, library_path, options);
+        return true;
+    } catch (const std::exception& error) {
+        std::cerr << "Warning: account library refresh failed: " << error.what() << '\n';
+        return false;
+    }
+}
+
+OwnershipState LibraryManager::ownership_of(const std::filesystem::path& library_path,
+                                            const std::string& product_id) {
+    for (const auto& entry : load(library_path)) {
+        if (entry.product_id == product_id) return entry.ownership;
+    }
+    return OwnershipState::Unknown;
+}
+
+int LibraryManager::list(const Catalog& catalog, const std::filesystem::path& path, bool show_all) {
+    auto entries = catalog_entries(catalog, load(path));
+    if (!show_all) {
+        std::vector<LibraryEntry> mine;
+        for (const auto& entry : entries) {
+            if (entry.ownership == OwnershipState::Owned || entry.ownership == OwnershipState::Manual) mine.push_back(entry);
+        }
+        if (mine.empty()) {
+            std::cout << "No owned products known yet. Run `openblizz library scan --cookie-file cookies.txt` "
+                         "once, or use --all to see the full catalog.\n";
+        }
+        entries = std::move(mine);
+    }
+    print_entries(entries);
     std::cout << "library-file: " << path << '\n';
     return 0;
 }
@@ -498,14 +552,14 @@ int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
             });
             const auto identity = json::parse(response_text(identity_response));
             if (!identity.is_object()) throw std::runtime_error("OAuth /userinfo returned an invalid identity response");
-            std::cout << "OAuth identity verified for library scan.\n";
+            if (!options.quiet) std::cout << "OAuth identity verified for library scan.\n";
         }
     } catch (const std::exception& error) {
         // The OAuth identity is informational when an account web session is
         // supplied; the web session is the actual ownership source.
         if (!has_web_session) throw;
         token.clear();
-        std::cerr << "Warning: OAuth identity unavailable (" << error.what() << "); continuing with the account web session.\n";
+        if (!options.quiet) std::cerr << "Warning: OAuth identity unavailable (" << error.what() << "); continuing with the account web session.\n";
     }
     if (token.empty() && !has_web_session) {
         throw std::runtime_error("library scan requires an OAuth token or account web session cookies");
@@ -528,7 +582,7 @@ int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
         const auto is_json = [](const HttpResponse& response) {
             return response.status == 200 && !response.body.empty() && response.body.front() != '<';
         };
-        std::cout << "Account web session provider: querying " << base << "/api/games-and-subs\n";
+        if (!options.quiet) std::cout << "Account web session provider: querying " << base << "/api/games-and-subs\n";
 
         if (!session.cookie_file.empty()) {
             // Browser-like session: the cookie engine keeps the exported cookies in
@@ -538,7 +592,7 @@ int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
             CookieSession browser(session.cookie_file.string());
             auto games = browser.get(base + "/api/games-and-subs", headers);
             if (!is_json(games)) {
-                std::cout << "Account session expired; renewing it through the site login flow.\n";
+                if (!options.quiet) std::cout << "Account session expired; renewing it through the site login flow.\n";
                 const auto renew = browser.get(base + "/oauth2/authorization/account-settings");
                 if (renew.status != 200) {
                     throw std::runtime_error("session renewal ended with HTTP " + std::to_string(renew.status) +
@@ -563,7 +617,7 @@ int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
             else std::cerr << "Warning: classic-games query returned HTTP " << classic.status << '\n';
             if (!session.cookie_jar.empty()) {
                 browser.save_jar(session.cookie_jar.string());
-                std::cout << "Updated session cookies saved with owner-only permissions at " << session.cookie_jar << '\n';
+                if (!options.quiet) std::cout << "Updated session cookies saved with owner-only permissions at " << session.cookie_jar << '\n';
             }
         } else {
             headers.push_back("Cookie: " + session.cookie_header);
@@ -595,6 +649,7 @@ int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
         const auto web = parse_account_web(games_body, classic_body, catalog.products());
         apply_records(entries, web.records, "account-web");
         save(path, entries);
+        if (options.quiet) return 0;
         std::cout << "Recognized account entries: " << web.records.size() << '\n';
         if (!web.unknown_titles.empty()) {
             std::cout << "Unmapped account entries (not in the OpenBlizz catalog yet):\n";

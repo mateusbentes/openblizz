@@ -36,11 +36,23 @@ struct LibraryScanOptions {
     std::string entitlement_url;
     AccountWebSession web_session;
     std::filesystem::path dump_path;
+    bool quiet{false};
 };
 
 class LibraryManager {
 public:
     [[nodiscard]] static std::filesystem::path default_file();
+    // Default location of the persisted account web session (Netscape cookies).
+    [[nodiscard]] static std::filesystem::path default_cookie_jar();
+
+    // If a cookie jar exists, silently re-scan the account when the stored
+    // account-web ownership is older than max_age_seconds. Returns true when
+    // a refresh happened. Network or session errors are reported as warnings.
+    static bool auto_refresh(const Catalog& catalog, const std::filesystem::path& library_path,
+                             const std::filesystem::path& cookie_jar, std::int64_t max_age_seconds);
+
+    [[nodiscard]] static OwnershipState ownership_of(const std::filesystem::path& library_path,
+                                                     const std::string& product_id);
     [[nodiscard]] static std::vector<LibraryEntry> load(const std::filesystem::path& path);
     static void save(const std::filesystem::path& path,
                      const std::vector<LibraryEntry>& entries);
@@ -57,7 +69,7 @@ public:
     [[nodiscard]] static std::string cookie_header_from_netscape_file(
         const std::filesystem::path& path, const std::string& host);
 
-    static int list(const Catalog& catalog, const std::filesystem::path& path);
+    static int list(const Catalog& catalog, const std::filesystem::path& path, bool show_all);
     static int add(const Catalog& catalog, const std::filesystem::path& path,
                    const std::string& product_id);
     static int remove(const Catalog& catalog, const std::filesystem::path& path,
