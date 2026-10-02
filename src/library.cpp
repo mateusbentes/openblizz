@@ -379,6 +379,52 @@ std::vector<std::string> products_for_title(std::int64_t title_id, const std::ve
     }
     return result;
 }
+// Program codes that create a Battle.net *game account* and therefore show up
+// in games-and-subs. Titles sold as a plain license (Warcraft I/II Remastered,
+// Blizzard Arcade Collection, ...) do not, so their absence there proves
+// nothing; those are resolved through the purchase history instead.
+const std::set<std::string>& game_account_products() {
+    static const std::set<std::string> table{
+        "w3", "w3-legacy-tft", "s1", "s2", "wow", "d3", "hsb", "hero", "pro", "anbs", "osi",
+        "fenris", "odin", "lazr", "zeus", "viper", "fore", "auks",
+    };
+    return table;
+}
+
+// Normalised purchase titles (see normalize_title) and the products they
+// unlock. Checked by substring so editions/bundles ("... Battle Chest") match.
+const std::vector<std::pair<std::string, std::vector<std::string>>>& purchase_title_products() {
+    static const std::vector<std::pair<std::string, std::vector<std::string>>> table{
+        {"warcraftiiiremastered", {"w1r", "w2r"}},
+        {"warcraftiandiiremastered", {"w1r", "w2r"}},
+        {"warcraftremasteredbattlechest", {"w1r", "w2r"}},
+        {"warcraftiremastered", {"w1r"}},
+        {"warcraftiiremastered", {"w2r"}},
+        {"warcraftiiireforged", {"w3"}},
+        {"warcraft3reforged", {"w3"}},
+        {"warcraftiiibattlechest", {"w3-legacy-tft"}},
+        {"warcraftiibattleneedition", {"w2bn"}},
+        {"warcraftiibattlenetedition", {"w2bn"}},
+        {"warcraftorcshumans", {"war1"}},
+        {"warcraftorcsandhumans", {"war1"}},
+        {"starcraftremastered", {"s1"}},
+        {"starcraftii", {"s2"}},
+        {"starcraft2", {"s2"}},
+        {"diabloiiresurrected", {"osi"}},
+        {"diabloiilordofdestruction", {"d2-lod"}},
+        {"diabloiv", {"fenris"}},
+        {"diabloiii", {"d3"}},
+        {"diabloimmortal", {"anbs"}},
+        {"worldofwarcraft", {"wow"}},
+        {"overwatch", {"pro"}},
+        {"hearthstone", {"hsb"}},
+        {"heroesofthestorm", {"hero"}},
+        {"blizzardarcadecollection", {"rtro"}},
+        {"crashbandicoot4", {"wlby"}},
+    };
+    return table;
+}
+
 std::string normalize_title(std::string value) {
     std::string out;
     for (std::size_t i = 0; i < value.size(); ++i) {
@@ -595,6 +641,11 @@ AccountWebResult LibraryManager::parse_account_web(const std::string& games_and_
         }
         const auto title_id = expected_title_id(product.id);
         if (title_id < 0 || !have_accounts) continue;
+        if (!classic_only && game_account_products().count(product.id) == 0) {
+            // License-only title: games-and-subs never lists it. Leave it for
+            // the purchase-history provider instead of guessing.
+            continue;
+        }
         if (classic_only && have_classic) {
             result.records.push_back({product.id, false, true, "account-web",
                                       "no game account (titleId " + std::to_string(title_id) + ") and no classic CD key"});
@@ -606,6 +657,123 @@ AccountWebResult LibraryManager::parse_account_web(const std::string& games_and_
                                   " (\"" + decode_title_id(title_id) + "\")"});
     }
     return result;
+}
+
+LibraryManager::PurchaseResult LibraryManager::parse_purchases(
+    const std::vector<std::string>& transaction_bodies, const std::vector<ProductDescriptor>& products) {
+    PurchaseResult result;
+    std::set<std::string> seen_titles;
+    for (const auto& body : transaction_bodies) {
+        if (body.empty()) continue;
+        const auto document = json::parse(body, nullptr, false, true);
+        if (document.is_discarded() || !document.is_object()) continue;
+        std::vector<json> items;
+        if (document.contains("purchases") && document.at("purchases").is_array()) {
+            for (const auto& purchase : document.at("purchases")) items.push_back(purchase);
+        }
+        if (document.contains("giftClaims") && document.at("giftClaims").is_array()) {
+            for (const auto& claim : document.at("giftClaims")) items.push_back(claim);
+        }
+        for (const auto& item : items) {
+            if (!item.is_object()) continue;
+            std::vector<std::string> titles;
+            if (item.contains("productTitle") && item.at("productTitle").is_string()) {
+                titles.push_back(item.at("productTitle").get<std::string>());
+            }
+            if (item.contains("lineItems") && item.at("lineItems").is_array()) {
+                for (const auto& line : item.at("lineItems")) {
+                    if (line.is_object() && line.contains("productTitle") && line.at("productTitle").is_string()) {
+                        titles.push_back(line.at("productTitle").get<std::string>());
+                    }
+                }
+            }
+            std::string status;
+            if (item.contains("localizedStatus") && item.at("localizedStatus").is_string()) status = item.at("localizedStatus").get<std::string>();
+            else if (item.contains("status")) status = item.at("status").dump();
+            const auto status_norm = normalize_title(status);
+            // Refunds and chargebacks revoke the license; skip those orders.
+            const bool revoked = status_norm.find("refund") != std::string::npos ||
+                                 status_norm.find("chargeback") != std::string::npos ||
+                                 status_norm.find("cancel") != std::string::npos ||
+                                 status_norm.find("revers") != std::string::npos;
+            for (const auto& title : titles) {
+                if (title.empty() || !seen_titles.insert(title).second) continue;
+                if (revoked) continue;
+                const auto normalized = normalize_title(title);
+                bool matched = false;
+                for (const auto& [needle, product_ids] : purchase_title_products()) {
+                    if (normalized.find(needle) == std::string::npos) continue;
+                    for (const auto& product_id : product_ids) {
+                        if (!product_in_catalog(products, product_id)) continue;
+                        result.records.push_back({product_id, true, true, "account-purchases",
+                                                  "purchase \"" + title + "\"" + (status.empty() ? "" : " status " + status)});
+                        matched = true;
+                    }
+                    if (matched) break;
+                }
+                if (!matched) {
+                    // Fall back to the catalog names themselves.
+                    for (const auto& product : products) {
+                        if (product.family == "ngdp") continue;
+                        const auto name = normalize_title(product.name);
+                        if (name.size() >= 6 && normalized.find(name) != std::string::npos) {
+                            result.records.push_back({product.id, true, true, "account-purchases",
+                                                      "purchase \"" + title + "\""});
+                            matched = true;
+                        }
+                    }
+                }
+                if (!matched) result.unmatched_titles.push_back(title);
+            }
+        }
+    }
+    return result;
+}
+
+std::vector<LibraryManager::ShopCard> LibraryManager::parse_shop_cards(const std::string& html) {
+    // The shop is a Next.js app; its server payload is pushed as JS string
+    // literals via self.__next_f.push([1,"..."]). Un-escape them and look for
+    // product cards (productPageName + slug).
+    std::string flight;
+    const std::string marker = "self.__next_f.push([1,\"";
+    for (auto pos = html.find(marker); pos != std::string::npos; pos = html.find(marker, pos)) {
+        pos += marker.size();
+        while (pos < html.size()) {
+            const char c = html[pos];
+            if (c == '\\' && pos + 1 < html.size()) {
+                const char n = html[pos + 1];
+                if (n == 'n') flight.push_back('\n');
+                else if (n == 't') flight.push_back('\t');
+                else if (n == 'u' && pos + 5 < html.size()) { flight.push_back('?'); pos += 4; }
+                else flight.push_back(n);
+                pos += 2;
+                continue;
+            }
+            if (c == '"') break;
+            flight.push_back(c);
+            ++pos;
+        }
+    }
+    std::vector<ShopCard> cards;
+    std::set<std::string> seen;
+    const std::string key = "\"productPageName\":\"";
+    const auto field = [&](const std::string& segment, const std::string& name) -> std::string {
+        const auto k = "\"" + name + "\":\"";
+        const auto at = segment.find(k);
+        if (at == std::string::npos) return {};
+        const auto end = segment.find('"', at + k.size());
+        return end == std::string::npos ? std::string{} : segment.substr(at + k.size(), end - at - k.size());
+    };
+    for (auto pos = flight.find(key); pos != std::string::npos; pos = flight.find(key, pos + key.size())) {
+        const auto begin = pos > 600 ? pos - 600 : 0;
+        const auto segment = flight.substr(begin, 1400);
+        ShopCard card{field(segment, "productPageName"), field(segment, "slug"), field(segment, "franchise"),
+                      field(segment, "appGameCode")};
+        while (!card.name.empty() && std::isspace(static_cast<unsigned char>(card.name.back()))) card.name.pop_back();
+        if (card.name.empty() || !seen.insert(card.name).second) continue;
+        cards.push_back(card);
+    }
+    return cards;
 }
 
 std::string LibraryManager::cookie_header_from_netscape_file(const std::filesystem::path& path,
@@ -684,6 +852,7 @@ int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
         };
         std::string games_body;
         std::string classic_body;
+        std::vector<std::string> transaction_bodies;
         const auto is_json = [](const HttpResponse& response) {
             return response.status == 200 && !response.body.empty() && response.body.front() != '<';
         };
@@ -720,6 +889,13 @@ int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
             const auto classic = browser.get(base + "/api/classic-games", headers);
             if (is_json(classic)) classic_body = response_text(classic);
             else std::cerr << "Warning: classic-games query returned HTTP " << classic.status << '\n';
+            // Purchase history per Battle.net region (1 = Americas, 2 = Europe, 3 = Asia).
+            if (!options.quiet) std::cout << "Account web session provider: querying " << base << "/api/transactions\n";
+            for (const int region_id : {1, 2, 3}) {
+                const auto tx = browser.get(base + "/api/transactions?regionId=" + std::to_string(region_id), headers);
+                if (is_json(tx)) transaction_bodies.push_back(response_text(tx));
+                else if (region_id == 1) std::cerr << "Warning: transactions query returned HTTP " << tx.status << '\n';
+            }
             if (!session.cookie_jar.empty()) {
                 browser.save_jar(session.cookie_jar.string());
                 if (!options.quiet) std::cout << "Updated session cookies saved with owner-only permissions at " << session.cookie_jar << '\n';
@@ -741,12 +917,21 @@ int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
                 std::cerr << "Warning: classic-games query failed: " << http_error_hint(error.what()) << '\n';
             }
             if (!classic_body.empty() && classic_body.front() == '<') classic_body.clear();
+            for (const int region_id : {1, 2, 3}) {
+                try {
+                    auto body = response_text(http.get(base + "/api/transactions?regionId=" + std::to_string(region_id), headers));
+                    if (!body.empty() && body.front() != '<') transaction_bodies.push_back(std::move(body));
+                } catch (const std::exception&) {
+                }
+            }
         }
 
         if (!options.dump_path.empty()) {
             json dump;
             dump["games_and_subs"] = json::parse(games_body, nullptr, false, true);
             dump["classic_games"] = classic_body.empty() ? json{} : json::parse(classic_body, nullptr, false, true);
+            dump["transactions"] = json::array();
+            for (const auto& body : transaction_bodies) dump["transactions"].push_back(json::parse(body, nullptr, false, true));
             write_private_file(options.dump_path, dump.dump(2) + "\n");
             std::cout << "Raw account responses saved with owner-only permissions at " << options.dump_path << '\n';
         }
@@ -759,11 +944,25 @@ int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
                       << "); matching against the curated catalog only.\n";
             products = catalog.products();
         }
-        const auto web = parse_account_web(games_body, classic_body, products);
+        auto web = parse_account_web(games_body, classic_body, products);
+        const auto purchases = parse_purchases(transaction_bodies, products);
+        // Purchases prove ownership; they take precedence over a not_owned
+        // derived from games-and-subs absence.
+        for (const auto& record : purchases.records) {
+            web.records.erase(std::remove_if(web.records.begin(), web.records.end(),
+                                             [&](const EntitlementRecord& r) { return r.product_id == record.product_id && !r.owned; }),
+                              web.records.end());
+            web.records.push_back(record);
+        }
         apply_records(entries, web.records, "account-web");
         save(path, entries);
         if (options.quiet) return 0;
-        std::cout << "Recognized account entries: " << web.records.size() << '\n';
+        std::cout << "Recognized account entries: " << web.records.size()
+                  << " (purchases matched: " << purchases.records.size() << ")\n";
+        if (!purchases.unmatched_titles.empty()) {
+            std::cout << "Purchases not mapped to an installable product (DLC, services, third-party titles):\n";
+            for (const auto& title : purchases.unmatched_titles) std::cout << "  " << title << '\n';
+        }
         if (!web.unknown_titles.empty()) {
             std::cout << "Unmapped account entries (no NGDP product with this program code):\n";
             for (const auto& title : web.unknown_titles) std::cout << "  " << title << '\n';

@@ -287,12 +287,37 @@ int main() {
                                 {"titleId":1095647827,"gameAccountStatus":"Good"},
                                 {"titleId":1178684229,"gameAccountStatus":"Good"}]})",
             R"({"classicGames":[]})", all);
-        assert(r.records.size() == 4);
+        assert(r.records.size() == 3);  // w1r is license-only: absence proves nothing
         assert(r.records[0].product_id == "w3" && r.records[0].owned);
         assert(r.records[1].product_id == "anbs" && r.records[1].owned);
-        assert(r.records[2].product_id == "w1r" && !r.records[2].owned && r.records[2].explicit_state);
-        assert(r.records[3].product_id == "d2-lod" && !r.records[3].owned);
+        assert(r.records[2].product_id == "d2-lod" && !r.records[2].owned);
         assert(r.unknown_titles.size() == 1 && r.unknown_titles[0].find("\"FAKE\"") != std::string::npos);
+    }
+    {
+        // License-only titles (w1r) are never derived as not_owned from
+        // games-and-subs; purchases resolve them instead.
+        const std::vector<openblizz::ProductDescriptor> all{
+            {"w3", "Warcraft III: Reforged", "warcraft", "w3", true},
+            {"w1r", "Warcraft I: Remastered", "warcraft", "w1r", true},
+            {"w2r", "Warcraft II: Remastered", "warcraft", "w2r", true},
+            {"s1", "StarCraft: Remastered", "starcraft", "s1", true},
+        };
+        const auto r = openblizz::LibraryManager::parse_account_web(
+            R"({"gameAccounts":[{"titleId":22323,"gameAccountStatus":"Good"}]})", R"({"classicGames":[]})", all);
+        assert(r.records.size() == 2);
+        assert(r.records[0].product_id == "w3" && r.records[0].owned);
+        assert(r.records[1].product_id == "s1" && !r.records[1].owned);
+        const auto purchases = openblizz::LibraryManager::parse_purchases({
+            R"({"purchases":[{"productTitle":"Warcraft\u00ae I: Remastered","status":1},
+                              {"productTitle":"Warcraft\u00ae I & II: Remastered Battle Chest","localizedStatus":"Refunded"},
+                              {"productTitle":"The Witcher 3: Wild Hunt - Remastered","status":1}],
+                 "giftClaims":[]})"}, all);
+        assert(purchases.records.size() == 1);
+        assert(purchases.records[0].product_id == "w1r" && purchases.records[0].owned);
+        assert(purchases.unmatched_titles.size() == 1);
+        const auto cards = openblizz::LibraryManager::parse_shop_cards(
+            "<script>self.__next_f.push([1,\"x\\\"productPageName\\\":\\\"The Witcher 3 \\\",\\\"slug\\\":\\\"the-witcher-3\\\",\\\"franchise\\\":\\\"Witcher\\\",\\\"appGameCode\\\":\\\"\\\"\"])</script>");
+        assert(cards.size() == 1 && cards[0].name == "The Witcher 3" && cards[0].slug == "the-witcher-3");
     }
 
     const auto cookie_path = std::filesystem::temp_directory_path() / "openblizz-cookies-test.txt";

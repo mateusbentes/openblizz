@@ -32,3 +32,5 @@ provider is opt-in, labelled experimental, and only the response shape and the
 public `titleId` table were taken from the MIT-licensed reference, not code.
 Known `titleId` values: 21297 = StarCraft, 22323 = Warcraft III.
 - Battle.net titleId = FourCC of the program code (observed on the account's own games-and-subs response: 22323 "W3", 21297 "S1", 21298 "S2", 5730135 "WoW", 1095647827 "ANBS"; corroborated by the MIT-licensed galaxy-integration-blizzard TITLE_ID_MAP).
+- account.battle.net front-end bundle (public JavaScript): `TransactionsService` (`/api/transactions?regionId=N`, `/api/transactions/{orderId}/{invoiceId}`, fields `purchases[].productTitle`, `giftClaims[]`, `lineItems[].productTitle`) and `MyGamesService` (`/api/games-and-subs`, `/api/classic-games`, `/api/time-gated-games`, `/api/external-subs`). Observed 2026-10-02; undocumented, may change.
+- us.shop.battle.net home page (public Next.js flight payload): product cards with `productPageName`, `slug`, `franchise`, `appGameCode`, `cmsId`; `/api/user-browsing-cards` (POST, logged-in eligibility), `/api/user-wishlist`. Observed 2026-10-02.

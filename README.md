@@ -292,6 +292,21 @@ does not scrape private Battle.net account pages or invent an account inventory.
 - [Ribbit product endpoints](https://us.version.battle.net/v2/summary)
 - [CASC/TVFS format documentation](https://wowdev.wiki/CASC)
 
+### Ownership sources used by `library scan`
+
+| Source | What it proves | Covers |
+|---|---|---|
+| `account.battle.net/api/games-and-subs` | game accounts (W3, SC, SC2, WoW, D3/D4, OW, HS, ...) | titles that create a game account; absence => `not_owned` only for those |
+| `account.battle.net/api/classic-games` | registered CD keys | Warcraft II BNE, Warcraft: Orcs & Humans, StarCraft Anthology, Diablo II |
+| `account.battle.net/api/transactions?regionId=1,2,3` | purchase history (`productTitle`) | license-only titles such as Warcraft I/II Remastered, bundles; refunded or charged-back orders are ignored |
+
+Titles bought on Battle.net that OpenBlizz cannot install (DLC, services,
+third-party games like *The Witcher 3: Wild Hunt — Remastered*) are listed
+under "Purchases not mapped to an installable product" so nothing is hidden.
+`openblizz products --shop` prints the public storefront highlights
+(including third-party titles); it is not a full catalog because the shop
+renders the rest client-side behind a login.
+
 ## License and trademarks
 
 The OpenBlizz source is licensed under Apache-2.0. OpenBlizz is an independent project and is not affiliated with or endorsed by Blizzard Entertainment. Warcraft and Battle.net are trademarks of their respective owners. See [NOTICE](NOTICE) and [TRADEMARKS.md](TRADEMARKS.md).

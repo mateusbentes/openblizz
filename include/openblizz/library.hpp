@@ -71,6 +71,26 @@ public:
         const std::string& body, const std::vector<ProductDescriptor>& products);
 
     // Parse the account.battle.net "games-and-subs" and "classic-games" JSON.
+    // Purchase history (account.battle.net /api/transactions). Each purchase
+    // carries a localized productTitle which is matched by name against the
+    // catalog; unmatched titles are returned so the user still sees them.
+    struct PurchaseResult {
+        std::vector<EntitlementRecord> records;
+        std::vector<std::string> unmatched_titles;
+    };
+    [[nodiscard]] static PurchaseResult parse_purchases(
+        const std::vector<std::string>& transaction_bodies,
+        const std::vector<ProductDescriptor>& products);
+
+    // Storefront highlight cards embedded in the shop home page (public).
+    struct ShopCard {
+        std::string name;
+        std::string slug;
+        std::string franchise;
+        std::string app_game_code;
+    };
+    [[nodiscard]] static std::vector<ShopCard> parse_shop_cards(const std::string& html);
+
     [[nodiscard]] static AccountWebResult parse_account_web(
         const std::string& games_and_subs_body, const std::string& classic_games_body,
         const std::vector<ProductDescriptor>& products);

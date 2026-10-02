@@ -22,7 +22,7 @@ void usage() {
     std::cout << R"(OpenBlizz - independent Blizzard game client
 
 Usage:
-  openblizz products [--all]           (--all: every NGDP product code from Ribbit)
+  openblizz products [--all|--shop]    (--all: every NGDP product code; --shop: storefront highlights)
   openblizz versions <product> [--region us]
   openblizz cdns <product> [--region us]
   openblizz plan <product> [--region us] [--locale enUS] [--all-locales] [--no-data]
@@ -212,6 +212,20 @@ int main(int argc, char** argv) {
         if (command == "products") {
             ob::HttpClient http;
             ob::Catalog catalog(http);
+            if (has_flag(args, "--shop")) {
+                // Public storefront highlights (including third-party titles sold
+                // on Battle.net). Not a full catalog: the shop renders the rest
+                // client-side behind a login.
+                ob::CookieSession shop(std::string{});  // the storefront needs cookies across its login redirects
+                const auto page = shop.get("https://us.shop.battle.net/en-us", {
+                    "Accept: text/html",
+                });
+                for (const auto& card : ob::LibraryManager::parse_shop_cards(page.body.empty() ? std::string{} : std::string(page.body.begin(), page.body.end()))) {
+                    std::cout << card.slug << "\t" << card.name << "\t" << card.franchise
+                              << (card.app_game_code.empty() ? "" : "\tcode=" + card.app_game_code) << '\n';
+                }
+                return 0;
+            }
             if (has_flag(args, "--all")) {
                 // Every product code published by Ribbit; most are PTR/beta/internal.
                 for (const auto& entry : catalog.summary(option(args, "--region").empty() ? "us" : option(args, "--region"))) {
