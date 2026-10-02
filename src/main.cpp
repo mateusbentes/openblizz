@@ -38,7 +38,9 @@ Usage:
   openblizz library list [--library-file PATH]
   openblizz library add <product> [--library-file PATH]
   openblizz library remove <product> [--library-file PATH]
-  openblizz library scan [--entitlement-url HTTPS_URL] [--token-file PATH]
+  openblizz library scan [--cookie-file cookies.txt | --cookie-header 'JSESSIONID=...']
+                         [--account-host account.battle.net] [--dump PATH]
+                         [--entitlement-url HTTPS_URL] [--token-file PATH]
   openblizz launch --directory DIR --exe GAME.exe [--prefix PREFIX]
                    [--backend proton|umu|wine|native] [--proton GE-Proton]
 
@@ -153,7 +155,23 @@ int main(int argc, char** argv) {
                         endpoint = configured;
                     }
                 }
-                return ob::LibraryManager::scan(catalog, auth, path, endpoint);
+                ob::LibraryScanOptions scan_options;
+                scan_options.entitlement_url = endpoint;
+                scan_options.web_session.host = option(args, "--account-host", "account.battle.net");
+                scan_options.dump_path = option(args, "--dump");
+                auto cookie_file = option(args, "--cookie-file");
+                if (cookie_file.empty()) {
+                    if (const auto* configured = std::getenv("OPENBLIZZ_ACCOUNT_COOKIE_FILE"); configured != nullptr) {
+                        cookie_file = configured;
+                    }
+                }
+                if (!cookie_file.empty()) {
+                    scan_options.web_session.cookie_header =
+                        ob::LibraryManager::cookie_header_from_netscape_file(cookie_file, scan_options.web_session.host);
+                } else {
+                    scan_options.web_session.cookie_header = option(args, "--cookie-header");
+                }
+                return ob::LibraryManager::scan(catalog, auth, path, scan_options);
             }
             throw std::runtime_error("unknown library command: " + subcommand);
         }

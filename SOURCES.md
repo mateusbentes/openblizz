@@ -16,6 +16,8 @@ used as protocol and format references:
 - TVFS format documentation: https://wowdev.wiki/TVFS
 - BLTE format documentation: https://wowdev.wiki/BLTE
 - Community API discussion on owned-game discovery (Jan 2025): https://us.forums.blizzard.com/en/blizzard/t/fetching-a-users-owned-games/53759
+- galaxy-integration-blizzard (MIT), reference for the account web endpoints, `titleId` mapping and `gameAccountStatus` semantics: https://github.com/FriendsOfGalaxy/galaxy-integration-blizzard
+- Public JavaScript of https://account.battle.net/games (endpoint paths `/api/games-and-subs`, `/api/classic-games`, `X-XSRF-TOKEN` usage)
 
 No source code from Battle.Net-Installer is included in this repository.
 
@@ -23,6 +25,9 @@ The documented OAuth user flow currently exposes `/userinfo` and selected
 World of Warcraft profile resources. It does not document an owned-games,
 entitlement, installer, or download endpoint. OpenBlizz does not scrape
 private account pages or claim that the public catalog is an account inventory.
-The community discussion above mentions `account.battle.net/api/games-and-subs`
-as an observed web-session endpoint, but also records that it is not documented
-for third-party OAuth clients; OpenBlizz therefore does not call or hardcode it.
+The `account-web` library provider uses `account.battle.net/api/games-and-subs`
+and `/api/classic-games` with the user's own browser session cookies. These
+endpoints are not documented for third parties (see the discussion above); the
+provider is opt-in, labelled experimental, and only the response shape and the
+public `titleId` table were taken from the MIT-licensed reference, not code.
+Known `titleId` values: 21297 = StarCraft, 22323 = Warcraft III.

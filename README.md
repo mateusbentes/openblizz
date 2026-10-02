@@ -108,6 +108,35 @@ The manual provider is explicit and does not claim proof of ownership:
 ./build/openblizz library remove w3
 ```
 
+### Account web session provider (experimental, undocumented API)
+
+The Battle.net account management site (`account.battle.net`) lists the
+licenses attached to your account through the same internal JSON endpoints its
+own web page uses (`/api/games-and-subs` and `/api/classic-games`). OpenBlizz
+can read them with the cookies of *your own* browser session. No password is
+ever requested, and the cookies are kept in memory only.
+
+1. Log in at https://account.battle.net/games in your browser.
+2. Export the cookies for `account.battle.net` as a Netscape `cookies.txt`
+   (for example with the "Get cookies.txt LOCALLY" or "cookies.txt" browser
+   extensions). Keep that file private; it grants access to your account page.
+3. Run:
+
+```bash
+./build/openblizz library scan --cookie-file ~/Downloads/cookies.txt
+./build/openblizz library list
+```
+
+Products returned with a `Good`, `Free`, `Inactive` or similar status become
+`owned`; `Trial` becomes `not_owned`; products not returned stay `unknown`.
+Add `--dump PATH` to save the raw responses (owner-only permissions) so that
+unmapped `titleId` values can be added to the catalog mapping.
+
+These endpoints are not part of Blizzard's documented developer API. They can
+change without notice and their use by third-party tools may fall outside
+Blizzard's terms; the provider is therefore opt-in and clearly labelled
+`account-web` in the library file.
+
 An experimental provider can be enabled only by explicitly configuring an
 HTTPS endpoint. OpenBlizz sends the OAuth Bearer token to that endpoint, so do
 not configure an endpoint you do not trust:

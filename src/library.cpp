@@ -284,53 +284,96 @@ int LibraryManager::remove(const Catalog& catalog, const std::filesystem::path& 
     return 0;
 }
 
-int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
-                         const std::filesystem::path& path, const std::string& entitlement_url) {
-    const auto token = AuthManager::oauth_access_token(auth);
-    if (token.empty()) throw std::runtime_error("library scan requires an OAuth token; run openblizz login first");
+namespace {
 
-    HttpClient http;
-    const auto identity_response = http.get("https://oauth.battle.net/userinfo", {
-        "Authorization: Bearer " + token,
-        "Accept: application/json",
-        "User-Agent: OpenBlizz/0.1",
-    });
-    const auto identity = json::parse(response_text(identity_response));
-    if (!identity.is_object()) throw std::runtime_error("OAuth /userinfo returned an invalid identity response");
-    std::cout << "OAuth identity verified for library scan.\n";
+// Title identifiers observed in the account.battle.net "games-and-subs"
+// response. The mapping is documented in SOURCES.md and derived from the
+// MIT-licensed galaxy-integration-blizzard project and public account pages.
+const std::map<std::int64_t, std::vector<std::string>>& title_id_products() {
+    static const std::map<std::int64_t, std::vector<std::string>> table{
+        {21297, {"s1"}},
+        {22323, {"w3", "w3-legacy-tft"}},
+    };
+    return table;
+}
 
-    auto entries = catalog_entries(catalog, load(path));
-    if (entitlement_url.empty()) {
-        for (auto& entry : entries) {
-            if (entry.ownership == OwnershipState::Manual) continue;
-            entry.ownership = OwnershipState::Unknown;
-            entry.source = "oauth-identity";
-            entry.reason = "public OAuth identity does not expose owned products";
-            entry.updated_at = now_seconds();
+std::string normalize_title(std::string value) {
+    std::string out;
+    for (std::size_t i = 0; i < value.size(); ++i) {
+        const auto ch = static_cast<unsigned char>(value[i]);
+        // Drop the UTF-8 sequences for ® (c2 ae), ™ (e2 84 a2) and nbsp (c2 a0).
+        if (ch == 0xc2 && i + 1 < value.size()) {
+            const auto next = static_cast<unsigned char>(value[i + 1]);
+            if (next == 0xae || next == 0xa0) { ++i; continue; }
         }
-        save(path, entries);
-        std::cout << "No entitlement endpoint configured; ownership remains unknown.\n";
-        print_entries(entries);
-        return 0;
+        if (ch == 0xe2 && i + 2 < value.size() &&
+            static_cast<unsigned char>(value[i + 1]) == 0x84 &&
+            static_cast<unsigned char>(value[i + 2]) == 0xa2) { i += 2; continue; }
+        if (std::isalnum(ch)) out.push_back(static_cast<char>(std::tolower(ch)));
     }
+    return out;
+}
 
-    require_safe_endpoint(entitlement_url);
-    std::cout << "Experimental entitlement probe enabled for the configured endpoint.\n";
-    const auto response = http.get(entitlement_url, {
-        "Authorization: Bearer " + token,
-        "Accept: application/json",
-        "User-Agent: OpenBlizz/0.1",
-    });
-    const auto records = parse_entitlement_response(response_text(response), catalog.products());
+// Classic (CD key) titles listed by "classic-games" and the NGDP products
+// they correspond to in the OpenBlizz catalog.
+const std::vector<std::pair<std::string, std::string>>& classic_title_products() {
+    static const std::vector<std::pair<std::string, std::string>> table{
+        {"warcraftiiireignofchaos", "w3-legacy-tft"},
+        {"warcraftiiithefrozenthrone", "w3-legacy-tft"},
+        {"warcraftiibattleneedition", "w2bn"},
+        {"warcraftiibattlenetedition", "w2bn"},
+        {"warcraftorcshumans", "war1"},
+        {"warcraftorcsandhumans", "war1"},
+        {"starcraftanthology", "s1"},
+        {"starcraft", "s1"},
+    };
+    return table;
+}
+
+bool product_in_catalog(const std::vector<ProductDescriptor>& products, const std::string& id) {
+    return known_product(products, id) != nullptr;
+}
+
+std::string status_text(const json& account) {
+    if (account.contains("gameAccountStatus") && account.at("gameAccountStatus").is_string()) {
+        return account.at("gameAccountStatus").get<std::string>();
+    }
+    return {};
+}
+
+void write_private_file(const std::filesystem::path& path, const std::string& content) {
+    if (path.has_parent_path()) std::filesystem::create_directories(path.parent_path());
+    std::ofstream output(path, std::ios::trunc);
+    if (!output) throw std::runtime_error("cannot create dump file: " + path.string());
+    output << content;
+    output.close();
+#if !defined(_WIN32)
+    ::chmod(path.c_str(), S_IRUSR | S_IWUSR);
+#endif
+}
+
+std::string http_error_hint(const std::string& what) {
+    if (what.find("status 401") != std::string::npos || what.find("status 403") != std::string::npos) {
+        return "the account.battle.net session cookies were rejected (expired or incomplete); "
+               "log in again in the browser and re-export cookies.txt";
+    }
+    return what;
+}
+
+void apply_records(std::vector<LibraryEntry>& entries, const std::vector<EntitlementRecord>& records,
+                   const std::string& default_source) {
     std::map<std::string, EntitlementRecord> by_id;
-    for (const auto& record : records) by_id[record.product_id] = record;
-
+    for (const auto& record : records) {
+        // Prefer an owned record over a not-owned one for the same product.
+        const auto existing = by_id.find(record.product_id);
+        if (existing == by_id.end() || (!existing->second.owned && record.owned)) by_id[record.product_id] = record;
+    }
     for (auto& entry : entries) {
         const auto it = by_id.find(entry.product_id);
         if (it == by_id.end()) {
             if (entry.ownership == OwnershipState::Manual) continue;
             entry.ownership = OwnershipState::Unknown;
-            entry.source = "experimental-oauth";
+            entry.source = default_source;
             entry.reason = "endpoint did not return this product; absence is not treated as not-owned";
         } else {
             entry.ownership = it->second.owned ? OwnershipState::Owned : OwnershipState::NotOwned;
@@ -339,6 +382,198 @@ int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
         }
         entry.updated_at = now_seconds();
     }
+}
+
+} // namespace
+
+AccountWebResult LibraryManager::parse_account_web(const std::string& games_and_subs_body,
+                                                   const std::string& classic_games_body,
+                                                   const std::vector<ProductDescriptor>& products) {
+    AccountWebResult result;
+
+    if (!games_and_subs_body.empty()) {
+        const auto document = json::parse(games_and_subs_body, nullptr, true, true);
+        if (!document.is_object() || !document.contains("gameAccounts") || !document.at("gameAccounts").is_array()) {
+            throw std::runtime_error("games-and-subs response does not contain a gameAccounts array");
+        }
+        for (const auto& account : document.at("gameAccounts")) {
+            if (!account.is_object()) continue;
+            std::int64_t title_id = -1;
+            if (account.contains("titleId") && account.at("titleId").is_number_integer()) {
+                title_id = account.at("titleId").get<std::int64_t>();
+            } else if (account.contains("gameAccountUniqueId") && account.at("gameAccountUniqueId").is_object() &&
+                       account.at("gameAccountUniqueId").value("programId", json{}).is_number_integer()) {
+                title_id = account.at("gameAccountUniqueId").at("programId").get<std::int64_t>();
+            }
+            const auto status = status_text(account);
+            const auto mapped = title_id_products().find(title_id);
+            if (mapped == title_id_products().end()) {
+                result.unknown_titles.push_back("titleId=" + std::to_string(title_id) +
+                                                (status.empty() ? "" : " status=" + status));
+                continue;
+            }
+            // Statuses observed on the account page. "Trial" is the only one that
+            // does not represent a purchased or free license.
+            const bool owned = status != "Trial";
+            for (const auto& product_id : mapped->second) {
+                if (!product_in_catalog(products, product_id)) continue;
+                result.records.push_back({product_id, owned, true, "account-web",
+                                          "games-and-subs titleId " + std::to_string(title_id) +
+                                          " status " + (status.empty() ? "unknown" : status)});
+            }
+        }
+    }
+
+    if (!classic_games_body.empty()) {
+        const auto document = json::parse(classic_games_body, nullptr, true, true);
+        if (!document.is_object() || !document.contains("classicGames") || !document.at("classicGames").is_array()) {
+            throw std::runtime_error("classic-games response does not contain a classicGames array");
+        }
+        for (const auto& game : document.at("classicGames")) {
+            if (!game.is_object() || !game.contains("localizedGameName") || !game.at("localizedGameName").is_string()) continue;
+            const auto name = game.at("localizedGameName").get<std::string>();
+            const auto normalized = normalize_title(name);
+            bool matched = false;
+            for (const auto& [needle, product_id] : classic_title_products()) {
+                if (normalized != needle) continue;
+                matched = true;
+                if (product_in_catalog(products, product_id)) {
+                    result.records.push_back({product_id, true, true, "account-web",
+                                              "classic-games entry \"" + name + "\""});
+                }
+                break;
+            }
+            if (!matched) result.unknown_titles.push_back("classic=\"" + name + "\"");
+        }
+    }
+    return result;
+}
+
+std::string LibraryManager::cookie_header_from_netscape_file(const std::filesystem::path& path,
+                                                             const std::string& host) {
+    std::ifstream input(path);
+    if (!input) throw std::runtime_error("cannot read cookie file: " + path.string());
+    std::string line;
+    std::string header;
+    while (std::getline(input, line)) {
+        if (line.empty()) continue;
+        bool http_only = false;
+        if (line.rfind("#HttpOnly_", 0) == 0) { http_only = true; line = line.substr(10); }
+        else if (line[0] == '#') continue;
+        (void)http_only;
+        std::vector<std::string> fields;
+        std::string field;
+        for (const auto ch : line) {
+            if (ch == '\t') { fields.push_back(field); field.clear(); }
+            else field.push_back(ch);
+        }
+        fields.push_back(field);
+        if (fields.size() < 7) continue;
+        auto domain = lower(fields[0]);
+        if (!domain.empty() && domain[0] == '.') domain = domain.substr(1);
+        const auto target = lower(host);
+        const bool matches = target == domain ||
+            (target.size() > domain.size() && target.compare(target.size() - domain.size() - 1, domain.size() + 1, "." + domain) == 0);
+        if (!matches) continue;
+        if (!header.empty()) header += "; ";
+        header += fields[5] + "=" + fields[6];
+    }
+    if (header.empty()) throw std::runtime_error("no cookies for " + host + " found in " + path.string());
+    return header;
+}
+
+int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
+                         const std::filesystem::path& path, const LibraryScanOptions& options) {
+    HttpClient http;
+    const auto token = AuthManager::oauth_access_token(auth);
+    if (!token.empty()) {
+        const auto identity_response = http.get("https://oauth.battle.net/userinfo", {
+            "Authorization: Bearer " + token,
+            "Accept: application/json",
+            "User-Agent: OpenBlizz/0.1",
+        });
+        const auto identity = json::parse(response_text(identity_response));
+        if (!identity.is_object()) throw std::runtime_error("OAuth /userinfo returned an invalid identity response");
+        std::cout << "OAuth identity verified for library scan.\n";
+    } else if (options.web_session.cookie_header.empty()) {
+        throw std::runtime_error("library scan requires an OAuth token or account web session cookies");
+    }
+
+    auto entries = catalog_entries(catalog, load(path));
+
+    if (!options.web_session.cookie_header.empty()) {
+        const auto& session = options.web_session;
+        if (session.host.find('/') != std::string::npos || session.host.empty()) {
+            throw std::runtime_error("invalid account host: " + session.host);
+        }
+        const std::vector<std::string> headers{
+            "Cookie: " + session.cookie_header,
+            "Accept: application/json",
+            "User-Agent: Mozilla/5.0 (X11; Linux x86_64) OpenBlizz/0.1",
+            "Referer: https://" + session.host + "/games",
+        };
+        std::cout << "Account web session provider: querying https://" << session.host << "/api/games-and-subs\n";
+        std::string games_body;
+        std::string classic_body;
+        try {
+            games_body = response_text(http.get("https://" + session.host + "/api/games-and-subs", headers));
+        } catch (const std::exception& error) {
+            throw std::runtime_error(http_error_hint(error.what()));
+        }
+        if (games_body.empty() || games_body.front() == '<') {
+            throw std::runtime_error("account.battle.net returned HTML instead of JSON; the session cookies are not authenticated");
+        }
+        try {
+            classic_body = response_text(http.get("https://" + session.host + "/api/classic-games", headers));
+        } catch (const std::exception& error) {
+            std::cerr << "Warning: classic-games query failed: " << http_error_hint(error.what()) << '\n';
+        }
+        if (!classic_body.empty() && classic_body.front() == '<') classic_body.clear();
+
+        if (!options.dump_path.empty()) {
+            json dump;
+            dump["games_and_subs"] = json::parse(games_body, nullptr, false, true);
+            dump["classic_games"] = classic_body.empty() ? json{} : json::parse(classic_body, nullptr, false, true);
+            write_private_file(options.dump_path, dump.dump(2) + "\n");
+            std::cout << "Raw account responses saved with owner-only permissions at " << options.dump_path << '\n';
+        }
+
+        const auto web = parse_account_web(games_body, classic_body, catalog.products());
+        apply_records(entries, web.records, "account-web");
+        save(path, entries);
+        std::cout << "Recognized account entries: " << web.records.size() << '\n';
+        if (!web.unknown_titles.empty()) {
+            std::cout << "Unmapped account entries (not in the OpenBlizz catalog yet):\n";
+            for (const auto& title : web.unknown_titles) std::cout << "  " << title << '\n';
+        }
+        print_entries(entries);
+        return 0;
+    }
+
+    if (options.entitlement_url.empty()) {
+        for (auto& entry : entries) {
+            if (entry.ownership == OwnershipState::Manual) continue;
+            entry.ownership = OwnershipState::Unknown;
+            entry.source = "oauth-identity";
+            entry.reason = "public OAuth identity does not expose owned products";
+            entry.updated_at = now_seconds();
+        }
+        save(path, entries);
+        std::cout << "No account session or entitlement endpoint configured; ownership remains unknown.\n"
+                  << "Hint: export your account.battle.net cookies and run library scan --cookie-file cookies.txt\n";
+        print_entries(entries);
+        return 0;
+    }
+
+    require_safe_endpoint(options.entitlement_url);
+    std::cout << "Experimental entitlement probe enabled for the configured endpoint.\n";
+    const auto response = http.get(options.entitlement_url, {
+        "Authorization: Bearer " + token,
+        "Accept: application/json",
+        "User-Agent: OpenBlizz/0.1",
+    });
+    const auto records = parse_entitlement_response(response_text(response), catalog.products());
+    apply_records(entries, records, "experimental-oauth");
     save(path, entries);
     std::cout << "Recognized entitlement records: " << records.size() << '\n';
     print_entries(entries);

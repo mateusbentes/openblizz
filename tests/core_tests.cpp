@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -157,6 +158,38 @@ int main() {
     assert(loaded.size() == 1);
     assert(loaded.front().ownership == openblizz::OwnershipState::Manual);
     std::filesystem::remove(library_path);
+
+    const std::vector<openblizz::ProductDescriptor> web_products{
+        {"w3", "Warcraft III: Reforged", "warcraft", "w3", true},
+        {"w3-legacy-tft", "Warcraft III: legacy/TFT", "warcraft", "w3", true},
+        {"w2bn", "Warcraft II: Battle.net Edition", "warcraft", "w2bn", true},
+        {"s1", "StarCraft: Remastered", "starcraft", "s1", true},
+    };
+    const auto web = openblizz::LibraryManager::parse_account_web(
+        R"({"gameAccounts":[{"titleId":22323,"gameAccountStatus":"Good"},
+                            {"titleId":21297,"gameAccountStatus":"Trial"},
+                            {"titleId":5730135,"gameAccountStatus":"Inactive"}]})",
+        "{\"classicGames\":[{\"localizedGameName\":\"Warcraft\xc2\xae II: Battle.net\xc2\xae Edition\"},"
+        "{\"localizedGameName\":\"Diablo\xc2\xae II\"}]}",
+        web_products);
+    assert(web.records.size() == 4);
+    assert(web.records[0].product_id == "w3" && web.records[0].owned);
+    assert(web.records[1].product_id == "w3-legacy-tft" && web.records[1].owned);
+    assert(web.records[2].product_id == "s1" && !web.records[2].owned);
+    assert(web.records[3].product_id == "w2bn" && web.records[3].owned);
+    assert(web.unknown_titles.size() == 2);
+
+    const auto cookie_path = std::filesystem::temp_directory_path() / "openblizz-cookies-test.txt";
+    {
+        std::ofstream cookies(cookie_path);
+        cookies << "# Netscape HTTP Cookie File\n"
+                << "account.battle.net\tFALSE\t/\tTRUE\t0\tJSESSIONID\tabc\n"
+                << "#HttpOnly_.battle.net\tTRUE\t/\tTRUE\t0\tsessionTrackingId\txyz\n"
+                << "www.example.com\tFALSE\t/\tTRUE\t0\tignored\t1\n";
+    }
+    const auto header = openblizz::LibraryManager::cookie_header_from_netscape_file(cookie_path, "account.battle.net");
+    assert(header == "JSESSIONID=abc; sessionTrackingId=xyz");
+    std::filesystem::remove(cookie_path);
 
     std::cout << "OpenBlizz core tests passed\n";
     return 0;
