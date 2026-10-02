@@ -245,6 +245,8 @@ int main() {
         {"w3-legacy-tft", "Warcraft III: legacy/TFT", "warcraft", "w3", true},
         {"w2bn", "Warcraft II: Battle.net Edition", "warcraft", "w2bn", true},
         {"s1", "StarCraft: Remastered", "starcraft", "s1", true},
+        {"wow", "World of Warcraft", "warcraft", "wow", true},
+        {"d2-classic", "Diablo II (classic, legacy installer)", "diablo", "", false},
     };
     const auto web = openblizz::LibraryManager::parse_account_web(
         R"({"gameAccounts":[{"titleId":22323,"gameAccountStatus":"Good"},
@@ -253,12 +255,14 @@ int main() {
         "{\"classicGames\":[{\"localizedGameName\":\"Warcraft\xc2\xae II: Battle.net\xc2\xae Edition\"},"
         "{\"localizedGameName\":\"Diablo\xc2\xae II\"}]}",
         web_products);
-    assert(web.records.size() == 4);
+    assert(web.records.size() == 6);
     assert(web.records[0].product_id == "w3" && web.records[0].owned);
     assert(web.records[1].product_id == "w3-legacy-tft" && web.records[1].owned);
     assert(web.records[2].product_id == "s1" && !web.records[2].owned);
-    assert(web.records[3].product_id == "w2bn" && web.records[3].owned);
-    assert(web.unknown_titles.size() == 2);
+    assert(web.records[3].product_id == "wow" && web.records[3].owned);
+    assert(web.records[4].product_id == "w2bn" && web.records[4].owned);
+    assert(web.records[5].product_id == "d2-classic" && web.records[5].owned);
+    assert(web.unknown_titles.empty());
 
     const auto cookie_path = std::filesystem::temp_directory_path() / "openblizz-cookies-test.txt";
     {

@@ -346,7 +346,10 @@ namespace {
 const std::map<std::int64_t, std::vector<std::string>>& title_id_products() {
     static const std::map<std::int64_t, std::vector<std::string>> table{
         {21297, {"s1"}},
+        {21298, {"s2"}},
         {22323, {"w3", "w3-legacy-tft"}},
+        {5730135, {"wow"}},
+        {1095647827, {"anbs"}},  // "ANBS", Diablo Immortal
     };
     return table;
 }
@@ -380,6 +383,8 @@ const std::vector<std::pair<std::string, std::string>>& classic_title_products()
         {"warcraftorcsandhumans", "war1"},
         {"starcraftanthology", "s1"},
         {"starcraft", "s1"},
+        {"diabloiilordofdestruction", "d2-lod"},
+        {"diabloii", "d2-classic"},
     };
     return table;
 }

@@ -71,6 +71,13 @@ std::vector<ProductDescriptor> Catalog::products() const {
         {"w1r", "Warcraft I: Remastered", "warcraft", "w1r", true},
         {"war1", "Warcraft I: legacy", "warcraft", "war1", true},
         {"s1", "StarCraft: Remastered", "starcraft", "s1", true},
+        {"s2", "StarCraft II", "starcraft", "s2", true},
+        {"wow", "World of Warcraft", "warcraft", "wow", true},
+        {"anbs", "Diablo Immortal", "diablo", "anbs", true},
+        // Classic CD-key titles still listed by the account page. They are not
+        // distributed through NGDP, so they are catalogued for ownership only.
+        {"d2-classic", "Diablo II (classic, legacy installer)", "diablo", "", false},
+        {"d2-lod", "Diablo II: Lord of Destruction (classic, legacy installer)", "diablo", "", false},
     };
 }
 
@@ -204,6 +211,10 @@ const ProductDescriptor& find_product(const std::vector<ProductDescriptor>& prod
         return product.id == id;
     });
     if (it == products.end()) throw std::runtime_error("unsupported catalog product: " + id);
+    if (!it->supported) {
+        throw std::runtime_error(it->name + " is not distributed through NGDP; OpenBlizz can only report its ownership. "
+                                 "Use the legacy installer from the Battle.net account page.");
+    }
     return *it;
 }
 
