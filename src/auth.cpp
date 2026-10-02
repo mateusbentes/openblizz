@@ -176,7 +176,7 @@ std::string load_token(const AuthOptions& options) {
         std::chrono::system_clock::now().time_since_epoch()).count();
     if (token.empty()) throw std::runtime_error("OAuth token file has no access_token: " + path.string());
     if (expires_at > 0 && now >= expires_at) {
-        throw std::runtime_error("OAuth access token expired; run openblizz oauth-login again");
+        throw std::runtime_error("OAuth access token expired; run openblizz login again");
     }
     return token;
 }

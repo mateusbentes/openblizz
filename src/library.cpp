@@ -485,17 +485,29 @@ std::string LibraryManager::cookie_header_from_netscape_file(const std::filesyst
 int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
                          const std::filesystem::path& path, const LibraryScanOptions& options) {
     HttpClient http;
-    const auto token = AuthManager::oauth_access_token(auth);
-    if (!token.empty()) {
-        const auto identity_response = http.get("https://oauth.battle.net/userinfo", {
-            "Authorization: Bearer " + token,
-            "Accept: application/json",
-            "User-Agent: OpenBlizz/0.1",
-        });
-        const auto identity = json::parse(response_text(identity_response));
-        if (!identity.is_object()) throw std::runtime_error("OAuth /userinfo returned an invalid identity response");
-        std::cout << "OAuth identity verified for library scan.\n";
-    } else if (options.web_session.cookie_header.empty() && options.web_session.cookie_file.empty()) {
+    const bool has_web_session =
+        !options.web_session.cookie_header.empty() || !options.web_session.cookie_file.empty();
+    std::string token;
+    try {
+        token = AuthManager::oauth_access_token(auth);
+        if (!token.empty()) {
+            const auto identity_response = http.get("https://oauth.battle.net/userinfo", {
+                "Authorization: Bearer " + token,
+                "Accept: application/json",
+                "User-Agent: OpenBlizz/0.1",
+            });
+            const auto identity = json::parse(response_text(identity_response));
+            if (!identity.is_object()) throw std::runtime_error("OAuth /userinfo returned an invalid identity response");
+            std::cout << "OAuth identity verified for library scan.\n";
+        }
+    } catch (const std::exception& error) {
+        // The OAuth identity is informational when an account web session is
+        // supplied; the web session is the actual ownership source.
+        if (!has_web_session) throw;
+        token.clear();
+        std::cerr << "Warning: OAuth identity unavailable (" << error.what() << "); continuing with the account web session.\n";
+    }
+    if (token.empty() && !has_web_session) {
         throw std::runtime_error("library scan requires an OAuth token or account web session cookies");
     }
 
