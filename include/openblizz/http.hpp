@@ -37,4 +37,23 @@ private:
     Impl* impl_;
 };
 
+// A browser-like session: persistent connection handle with libcurl's cookie
+// engine enabled. Cookies are loaded from a Netscape cookies.txt file into
+// memory and are never written back to disk.
+class CookieSession {
+public:
+    explicit CookieSession(const std::string& netscape_cookie_file);
+    ~CookieSession();
+    CookieSession(const CookieSession&) = delete;
+    CookieSession& operator=(const CookieSession&) = delete;
+
+    // Follows redirects (up to 15). Does not throw on HTTP error status.
+    [[nodiscard]] HttpResponse get(const std::string& url,
+                                   const std::vector<std::string>& headers = {});
+
+private:
+    struct Impl;
+    Impl* impl_;
+};
+
 } // namespace openblizz

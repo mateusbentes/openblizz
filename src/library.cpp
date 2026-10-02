@@ -495,40 +495,71 @@ int LibraryManager::scan(const Catalog& catalog, const AuthOptions& auth,
         const auto identity = json::parse(response_text(identity_response));
         if (!identity.is_object()) throw std::runtime_error("OAuth /userinfo returned an invalid identity response");
         std::cout << "OAuth identity verified for library scan.\n";
-    } else if (options.web_session.cookie_header.empty()) {
+    } else if (options.web_session.cookie_header.empty() && options.web_session.cookie_file.empty()) {
         throw std::runtime_error("library scan requires an OAuth token or account web session cookies");
     }
 
     auto entries = catalog_entries(catalog, load(path));
 
-    if (!options.web_session.cookie_header.empty()) {
+    if (!options.web_session.cookie_header.empty() || !options.web_session.cookie_file.empty()) {
         const auto& session = options.web_session;
         if (session.host.find('/') != std::string::npos || session.host.empty()) {
             throw std::runtime_error("invalid account host: " + session.host);
         }
-        const std::vector<std::string> headers{
-            "Cookie: " + session.cookie_header,
+        const std::string base = "https://" + session.host;
+        std::vector<std::string> headers{
             "Accept: application/json",
-            "User-Agent: Mozilla/5.0 (X11; Linux x86_64) OpenBlizz/0.1",
-            "Referer: https://" + session.host + "/games",
+            "Referer: " + base + "/games",
         };
-        std::cout << "Account web session provider: querying https://" << session.host << "/api/games-and-subs\n";
         std::string games_body;
         std::string classic_body;
-        try {
-            games_body = response_text(http.get("https://" + session.host + "/api/games-and-subs", headers));
-        } catch (const std::exception& error) {
-            throw std::runtime_error(http_error_hint(error.what()));
+        const auto is_json = [](const HttpResponse& response) {
+            return response.status == 200 && !response.body.empty() && response.body.front() != '<';
+        };
+        std::cout << "Account web session provider: querying " << base << "/api/games-and-subs\n";
+
+        if (!session.cookie_file.empty()) {
+            // Browser-like session: the cookie engine keeps the exported cookies in
+            // memory. If the account sub-site session expired, the site's own
+            // login redirect chain renews it using the persistent battle.net
+            // cookies (remember/login.key), exactly as a browser would.
+            CookieSession browser(session.cookie_file.string());
+            auto games = browser.get(base + "/api/games-and-subs", headers);
+            if (!is_json(games)) {
+                std::cout << "Account session expired; renewing it through the site login flow.\n";
+                const auto renew = browser.get(base + "/oauth2/authorization/account-settings");
+                if (renew.status != 200) {
+                    throw std::runtime_error("session renewal ended with HTTP " + std::to_string(renew.status) +
+                                             "; log in again in the browser and re-export cookies.txt");
+                }
+                games = browser.get(base + "/api/games-and-subs", headers);
+            }
+            if (!is_json(games)) {
+                throw std::runtime_error(http_error_hint("status " + std::to_string(games.status) +
+                                                         " from games-and-subs"));
+            }
+            games_body = response_text(games);
+            const auto classic = browser.get(base + "/api/classic-games", headers);
+            if (is_json(classic)) classic_body = response_text(classic);
+            else std::cerr << "Warning: classic-games query returned HTTP " << classic.status << '\n';
+        } else {
+            headers.push_back("Cookie: " + session.cookie_header);
+            headers.push_back("User-Agent: Mozilla/5.0 (X11; Linux x86_64) OpenBlizz/0.1");
+            try {
+                games_body = response_text(http.get(base + "/api/games-and-subs", headers));
+            } catch (const std::exception& error) {
+                throw std::runtime_error(http_error_hint(error.what()));
+            }
+            if (games_body.empty() || games_body.front() == '<') {
+                throw std::runtime_error("account.battle.net returned HTML instead of JSON; the session cookies are not authenticated");
+            }
+            try {
+                classic_body = response_text(http.get(base + "/api/classic-games", headers));
+            } catch (const std::exception& error) {
+                std::cerr << "Warning: classic-games query failed: " << http_error_hint(error.what()) << '\n';
+            }
+            if (!classic_body.empty() && classic_body.front() == '<') classic_body.clear();
         }
-        if (games_body.empty() || games_body.front() == '<') {
-            throw std::runtime_error("account.battle.net returned HTML instead of JSON; the session cookies are not authenticated");
-        }
-        try {
-            classic_body = response_text(http.get("https://" + session.host + "/api/classic-games", headers));
-        } catch (const std::exception& error) {
-            std::cerr << "Warning: classic-games query failed: " << http_error_hint(error.what()) << '\n';
-        }
-        if (!classic_body.empty() && classic_body.front() == '<') classic_body.clear();
 
         if (!options.dump_path.empty()) {
             json dump;

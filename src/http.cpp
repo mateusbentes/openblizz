@@ -250,3 +250,61 @@ void HttpClient::get_to_file(const std::string& url, const std::string& path,
 }
 
 } // namespace openblizz
+
+namespace openblizz {
+
+struct CookieSession::Impl {
+    CURL* curl{nullptr};
+};
+
+CookieSession::CookieSession(const std::string& netscape_cookie_file) : impl_(new Impl()) {
+    (void)curl_global();
+    impl_->curl = curl_easy_init();
+    if (impl_->curl == nullptr) {
+        delete impl_;
+        throw std::runtime_error("curl_easy_init failed");
+    }
+    // Enables the cookie engine and loads the file into memory. No CURLOPT_COOKIEJAR
+    // is set, so updated cookies are never written to disk.
+    curl_easy_setopt(impl_->curl, CURLOPT_COOKIEFILE, netscape_cookie_file.c_str());
+}
+
+CookieSession::~CookieSession() {
+    if (impl_ != nullptr) {
+        if (impl_->curl != nullptr) curl_easy_cleanup(impl_->curl);
+        delete impl_;
+    }
+}
+
+HttpResponse CookieSession::get(const std::string& url, const std::vector<std::string>& headers) {
+    CURL* curl = impl_->curl;
+    // Do not curl_easy_reset(): the cookie file is read lazily at the first
+    // transfer and a reset before that would discard it.
+    curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, nullptr);
+    curl_easy_setopt(curl, CURLOPT_PRIVATE, nullptr);
+
+    HttpResponse response;
+    configure(curl, url, headers);
+    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 15L);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT,
+                     "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0 OpenBlizz/0.1");
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_memory);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_callback);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &response.headers);
+
+    const auto result = curl_easy_perform(curl);
+    const std::string message = result == CURLE_OK ? "" : curl_easy_strerror(result);
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.status);
+    char* effective = nullptr;
+    curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &effective);
+    if (effective != nullptr) response.effective_url = effective;
+    free_headers(curl);
+    curl_easy_setopt(curl, CURLOPT_PRIVATE, nullptr);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, nullptr);
+    if (result != CURLE_OK) throw std::runtime_error("HTTP GET failed for " + url + ": " + message);
+    return response;
+}
+
+} // namespace openblizz

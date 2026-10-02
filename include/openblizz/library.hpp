@@ -22,6 +22,7 @@ struct EntitlementRecord {
 // memory from a Netscape cookies.txt export or a raw Cookie header string.
 struct AccountWebSession {
     std::string cookie_header;
+    std::filesystem::path cookie_file;
     std::string host{"account.battle.net"};
 };
 

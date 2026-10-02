@@ -166,8 +166,10 @@ int main(int argc, char** argv) {
                     }
                 }
                 if (!cookie_file.empty()) {
-                    scan_options.web_session.cookie_header =
-                        ob::LibraryManager::cookie_header_from_netscape_file(cookie_file, scan_options.web_session.host);
+                    if (!std::filesystem::is_regular_file(cookie_file)) {
+                        throw std::runtime_error("cookie file not found: " + cookie_file);
+                    }
+                    scan_options.web_session.cookie_file = cookie_file;
                 } else {
                     scan_options.web_session.cookie_header = option(args, "--cookie-header");
                 }

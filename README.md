@@ -117,9 +117,13 @@ can read them with the cookies of *your own* browser session. No password is
 ever requested, and the cookies are kept in memory only.
 
 1. Log in at https://account.battle.net/games in your browser.
-2. Export the cookies for `account.battle.net` as a Netscape `cookies.txt`
-   (for example with the "Get cookies.txt LOCALLY" or "cookies.txt" browser
-   extensions). Keep that file private; it grants access to your account page.
+2. Export the cookies for the whole `battle.net` domain (not only
+   `account.battle.net`) as a Netscape `cookies.txt`, for example with the
+   "Get cookies.txt LOCALLY" or "cookies.txt" browser extensions. The
+   persistent `.battle.net` login cookies are required: the account sub-site
+   session is short-lived and OpenBlizz renews it through the site's own login
+   redirect, exactly like a browser does. Keep the file private; it grants
+   access to your account page. Do not export cookies of unrelated sites.
 3. Run:
 
 ```bash
