@@ -293,7 +293,8 @@ int main(int argc, char** argv) {
                 } else if (ownership == ob::OwnershipState::Manual) {
                     std::cout << "Ownership: " << product << " was added manually to the library.\n";
                 } else {
-                    std::cout << "Warning: ownership of " << product << " is unknown; run library scan once with your account session.\n";
+                    std::cout << "Warning: ownership of " << product << " is unknown (Blizzard has no public entitlement API); "
+                                 "run `openblizz library scan --cookie-file cookies.txt` once with your account session.\n";
                 }
             }
             auto plan = make_plan(installer, product, args);

@@ -506,8 +506,6 @@ void AuthManager::require_authenticated(const AuthOptions& options, const std::s
             const auto identity = user_info(token);
             std::cout << "Authentication: OAuth identity verified\n";
             std::cout << "Identity: " << redacted(identity).dump() << '\n';
-            std::cout << "Warning: Blizzard does not document a public entitlement endpoint; "
-                         "product ownership remains unverified by OpenBlizz.\n";
             return;
         }
     } catch (const std::exception& error) {
