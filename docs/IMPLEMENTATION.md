@@ -1,57 +1,117 @@
-# Implementation notes
+# Architecture and implementation notes
 
-The repository is intentionally split into protocol, format, content and
-runner layers.
+OpenBlizz is one static library (`openblizz_core`) plus a thin CLI
+(`src/main.cpp`). The library is split into protocol, format, content, account
+and runner layers; every layer is covered by `tests/core_tests.cpp` with
+synthetic fixtures (no Blizzard data is checked in).
 
-`Catalog` discovers current product versions and CDN hosts from Ribbit V2,
-then validates object hashes returned from the CDN. `BlteDecoder` supports the
-uncompressed, zlib and LZ4 block modes used by configuration and manifest
-objects. `EncodingIndex` resolves install-manifest content keys to one or more
-encoding keys. `ArchiveIndex` resolves archive-backed encoding keys to offsets;
-the installer reads those BLTE ranges without downloading whole multi-hundred-
-megabyte archives. `Installer` selects Windows/x86_64/locale/Release tags,
-downloads objects into a content-addressed cache, writes atomically through
-`.part` files, verifies MD5 content keys, and repairs missing or corrupted
-files.
+```
+src/http.cpp          libcurl wrapper: GET / Range GET / POST / file download, cookie jars
+src/hash.cpp          MD5, SHA-256 (OpenSSL), Jenkins lookup3 (CASC checksums)
+src/formats.cpp       BPSV tables, build/CDN config, BLTE, IN/DL/EN manifests, archive indexes
+src/catalog.cpp       Ribbit V2 over HTTPS (summary, versions, cdns) + curated product list
+src/tvfs.cpp          TVFS container parser and recursive VFS resolver
+src/casc.cpp          local CASC storage writer/reader (data.NNN + .idx journals)
+src/installer.cpp     plan / install / update / verify / repair orchestration
+src/library.cpp       account library: session renewal, ownership providers, shop parsers, library.json
+src/browser_login.cpp browser discovery, WebDriver BiDi / DevTools drivers, cookie capture
+src/runner.cpp        launch backends (umu/Proton, Wine, native)
+include/openblizz/    public headers (+ table.hpp: aligned grouped tables, franchise ordering)
+```
 
-OAuth is the primary authentication path. `oauth-login` opens the official
-Battle.net authorization page, validates the state returned to a manually
-pasted callback, exchanges the one-time code at `/token`, stores only the
-short-lived access token in an owner-only file, and calls `/userinfo`. It never
-collects a password or MFA value. The local Battle.net UI and Proton are not
-required for this flow.
+## Protocol layer
 
-The Battle.net Agent remains an optional legacy fallback for installation
-operations that need its local authority. OpenBlizz probes `/agent`, keeps its
-authorization token only in memory, and can check `/version/<uid>`. Blizzard's
-public documentation does not define a third-party entitlement API, so the
-Agent remains the authority when it is used; OpenBlizz does not pretend a local
-file proves ownership.
+`Catalog` reads Ribbit V2 through its HTTPS mirror
+(`{region}.version.battle.net/v2/...`): `summary` for every product code,
+`products/<p>/versions` and `/cdns` for the current build. Object hashes
+returned by the CDN are always validated before use.
 
-`openblizz account` consumes a bearer token from the owner-only OAuth token file
-or an environment variable and calls the documented
-`https://oauth.battle.net/userinfo` endpoint. `openblizz agent-info` reports a
-recursively redacted `/agent` response and can query `/version/<product>` for
-troubleshooting. The `products` command is intentionally a supported public
-catalog, not an account-owned inventory.
+`HttpClient` wraps libcurl: plain GET for configs and manifests, Range GET
+for archive-backed objects (neighbouring objects are coalesced into ≤ 32 MiB
+requests), POST only for the browser-automation handshake. All CDN hosts of a
+product are tried in turn before a download is declared failed.
 
-The current format implementation targets the public IN/DL/EN manifest path,
-including CDN archive indexes and range reads, plus the TVFS root used by
-Warcraft III: Reforged. `TvfsManifest` parses one TVFS container (path table
-with prefix folders, VFS table, CFT table with 9-byte EKeys and encoded sizes)
-and `VfsResolver` mounts `vfs-root` recursively, following the `vfs-N`
-references of the build config for nested `.w3mod` containers. `Installer`
-resolves every TVFS span to a full EKey through the encoding EKey table (or
-the archive indexes), keeps `enUS` plus the requested `_locales/xxxx.w3mod`,
-coalesces neighbouring archive objects into 32 MiB range requests, verifies
-each object against its EKey (MD5 of the object, or of the BLTE header for
-multi-chunk objects) and appends it to `CascStorage`.
-`CascStorage` writes the layout the executable reads directly: `Data/data/
-data.NNN` archives with the 30-byte header (reversed EKey, size, Jenkins
-ChecksumA, Agent ChecksumB) and 16 bucketed version-7 `.idx` journals,
-together with `Data/config/xx/yy/<hash>`, `Data/indices/<hash>.index` and the
-CSV `.build.info`. The storage reopens and resumes, so interrupted installs
-continue where they stopped; `verify --deep` re-hashes every stored object and
-`repair` drops damaged journal entries and downloads again. Encrypted content
-still fails loudly with a capability error. No game data is checked into this
-repository; fixtures must be synthetic or generated locally by the developer.
+## Format layer
+
+- **BPSV** (`Name!TYPE:len|...`) for Ribbit and `.build.info`.
+- **BLTE** with the `N` (raw), `Z` (zlib) and `4` (LZ4) chunk modes; encrypted
+  (`E`) chunks fail with an explicit capability error.
+- **Encoding** (`EN`): content key → encoding key(s) and encoded sizes.
+- **Install** (`IN`) and **Download** (`DL`) manifests with tag selection
+  (`Windows`, `x86_64`, locale, `Release`).
+- **Archive indexes** (`.index`): EKey → (archive, offset, size).
+- **TVFS**: path table with prefix folders, VFS table, CFT table with 9-byte
+  EKeys and encoded sizes; `VfsResolver` mounts `vfs-root` and follows the
+  nested `vfs-N` references listed in the build config (`war3.w3mod` and its
+  `_locales/*.w3mod` children for Warcraft III).
+
+## Content layer
+
+`Installer::plan` resolves build config → CDN config → encoding → install /
+download manifests → archive indexes (cached under `$XDG_CACHE_HOME/openblizz`)
+and, when the build has a TVFS root, the whole virtual file system filtered to
+`enUS` plus the requested locale.
+
+`Installer::install` writes install-manifest files atomically (`.part` then
+rename) after MD5 verification, and streams every TVFS object into
+`CascStorage`, which produces exactly the layout the game executable opens:
+`Data/data/data.NNN` archives (30-byte header: reversed EKey, size, Jenkins
+checksum A, checksum B), 16 bucketed version-7 `.idx` journals,
+`Data/config/xx/yy/<hash>`, `Data/indices/<hash>.index` and `.build.info`.
+Storage reopens and resumes, so interrupted installs continue; `verify`
+checks manifest files by hash and CASC objects by presence/size (`--deep`
+re-hashes them); `repair` drops damaged journal entries and downloads again.
+
+## Account layer
+
+Authentication is browser-only. `BrowserLogin` discovers a browser (explicit
+path, `OPENBLIZZ_BROWSER`, `xdg-settings` default, then known names; native,
+snap or flatpak), starts it with an isolated profile and a localhost
+automation port, and drives it with either **WebDriver BiDi** (Firefox family;
+`--remote-debugging-port` + WebSocket, `session.new`, `storage.getCookies`) or
+the **Chrome DevTools Protocol** (Chromium family; `/json/list`,
+`Storage.getCookies`). It polls the current URL until the account page is
+reached, captures the `battle.net` cookies, validates them against
+`account.battle.net/api/`, writes a Netscape cookie jar with mode 0600 and
+closes the window. The password never crosses the automation channel: only
+URLs and cookies are read.
+
+`LibraryManager` renews the session the way a browser would (following the
+`oauth2/authorization/account-settings` redirect chain with the long-lived
+`remember.auth.permit` cookie), then queries the account page's own JSON
+endpoints:
+
+| Endpoint | Provider | Mapping |
+|---|---|---|
+| `/api/games-and-subs` | `account-web` | `titleId` is the big-endian FourCC of the NGDP product code (`22323` → `W3`, `21297` → `S1`, `1095647827` → `ANBS`); decoded codes are matched against the Ribbit summary, so unknown products are still recognised and listed under "Other Battle.net products" |
+| `/api/classic-games` | `account-web` | CD-key titles by name (Diablo II, Warcraft II BNE, ...) |
+| `/api/transactions?regionId=1,2,3` | `account-purchases` | `productTitle` → product(s); bundles expand (e.g. "Warcraft Remastered Battle Chest" → `w1r`, `w2r`); refunded/charged-back orders are skipped |
+
+The merged result is written to `library.json` (0600) and refreshed
+automatically when older than six hours. `install`/`update`/`repair` consult
+it: `not owned` blocks (unless `--force`), `unknown` warns.
+
+`products --shop` parses the storefront navigation menu (`/family/...` and
+`/product/...` cards) and family pages so the whole catalogue, including
+third-party titles, is visible and cross-referenced with the library.
+
+These account endpoints are not part of Blizzard's documented developer API
+and may change; the code isolates them in `library.cpp` and labels their
+output accordingly. OAuth, the Battle.net Agent and manual cookie import were
+removed on purpose: they either required a developer client secret, the
+proprietary desktop app, or copy-pasting files, none of which fits a
+"log in once in your browser, then use the CLI" model.
+
+## Runner layer
+
+`Runner::launch` builds a shell command with `WINEPREFIX`, `PROTONPATH` and
+`GAMEID=umu-openblizz` and executes `umu-run` (Proton/umu backends), `wine`,
+or the executable itself (`native`). Arguments after `--` are forwarded
+verbatim; the exact command is printed so it can be reused in Steam shortcuts.
+
+## Testing
+
+`ctest` runs `openblizz_tests`: BPSV/config parsing, BLTE (all chunk modes),
+encoding and archive-index lookups, TVFS parsing/resolution, CASC journal
+round-trips, FourCC decoding, account JSON parsers, shop menu/family parsers,
+cookie-jar handling and table rendering. Tests are plain `assert()` based and need no network.
