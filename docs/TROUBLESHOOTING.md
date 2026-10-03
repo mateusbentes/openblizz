@@ -3,6 +3,16 @@
 Every error is printed as `OpenBlizz error: <reason>` on stderr with exit
 code 1. This page lists the common ones, grouped by phase.
 
+## Prebuilt installer
+
+| Symptom | Cause / fix |
+|---|---|
+| `release asset not found` | no GitHub Release exists yet, the tag has no Linux asset, or the asset name was changed; build from source or ask a maintainer to push a `v*` tag and wait for the Linux workflow |
+| `the release has no SHA256SUMS asset` | the Release was published manually or incompletely; do not bypass verification — republish it with `.github/workflows/release-linux.yml` |
+| `SHA256SUMS does not contain a checksum` / `SHA-256 mismatch` | wrong asset, corrupted download, or a tampered Release; the script intentionally leaves the existing `~/.local/bin/openblizz` untouched |
+| `~/.local/bin` is not in `PATH` | add the export printed by the script to `~/.bashrc`, `~/.zshrc` or the profile used by your shell, then open a new terminal |
+| `unsupported CPU architecture` | the current public Release contains Linux x86_64 only; use the source build or pass a separately published asset with `--asset` |
+
 ## Build
 
 | Symptom | Cause / fix |

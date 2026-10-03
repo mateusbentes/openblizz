@@ -17,6 +17,37 @@ OpenBlizz is not affiliated with or endorsed by Blizzard Entertainment. It
 does not distribute Battle.net, Agent.exe, game files, private keys or any
 proprietary asset, and it never asks for or stores your password.
 
+## Install the latest Linux binary
+
+For Linux x86_64, the repository includes a user-local installer. It downloads
+the binary and its `SHA256SUMS` file from the latest GitHub Release, verifies
+the checksum, and atomically installs the result as `~/.local/bin/openblizz`.
+It never uses `sudo`, changes system directories, or modifies shell profiles:
+
+```bash
+# Recommended: download, review and run the script locally
+curl --fail --silent --show-error --location \
+  https://raw.githubusercontent.com/mateusbentes/openblizz/main/scripts/install-openblizz.sh \
+  --output /tmp/install-openblizz.sh
+bash /tmp/install-openblizz.sh
+```
+
+To execute it directly without saving the script:
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/mateusbentes/openblizz/main/scripts/install-openblizz.sh \
+  | bash
+```
+
+The script also accepts `--version vX.Y.Z` to install a pinned release. When a
+new `v*` tag is pushed,
+the Linux GitHub Actions workflow publishes `openblizz-linux-x86_64` and
+`SHA256SUMS`; if the repository has no Release yet, the first such tag creates
+it.
+If `~/.local/bin` is not in `PATH` on your distribution, the script prints the
+one-line export to add to your shell profile; it does not edit that file.
+
 ## Quick start
 
 ```bash
@@ -51,6 +82,7 @@ openblizz launch --directory ~/Games/Warcraft3/x86_64 --exe "Warcraft III.exe" \
 | [docs/FILES.md](docs/FILES.md) | where everything lives (cookie jar, browser profile, library.json, cache), the game directory layout, environment variables, network endpoints contacted |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | build, login, library, download and launch problems with their fixes |
 | [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) | architecture: protocol, format, content, account and runner layers; how ownership is derived |
+| [docs/RELEASING.md](docs/RELEASING.md) | maintainer instructions for tags, GitHub Actions, assets and the prebuilt installer |
 | [SOURCES.md](SOURCES.md) | public specifications and references used for the clean-room implementation |
 | [CONTRIBUTING.md](CONTRIBUTING.md), [TRADEMARKS.md](TRADEMARKS.md), [NOTICE](NOTICE), [LICENSE](LICENSE) | contribution rules, trademark policy, legal notices (Apache-2.0) |
 
@@ -114,6 +146,9 @@ requirements). Warcraft III: Reforged is tested end to end.
 
 ## Limitations (honest list)
 
+- The prebuilt installer currently publishes a Linux x86_64/glibc binary;
+  other architectures should build from source until matching Release assets
+  are added.
 - Ownership comes from undocumented account-page endpoints; a Blizzard change
   can break `library scan` until the parser is updated (installing with
   `--force` keeps working).

@@ -21,6 +21,33 @@ git clone https://github.com/mateusbentes/openblizz.git
 cd openblizz
 ```
 
+## Install a prebuilt Linux binary
+
+If you only want to use OpenBlizz on Linux x86_64, you do not need a compiler
+or a container. The installer downloads `openblizz-linux-x86_64` and the
+matching `SHA256SUMS` asset from the latest GitHub Release, verifies it, and
+installs it atomically at `~/.local/bin/openblizz`:
+
+```bash
+curl --fail --silent --show-error --location \
+  https://raw.githubusercontent.com/mateusbentes/openblizz/main/scripts/install-openblizz.sh \
+  --output /tmp/install-openblizz.sh
+bash /tmp/install-openblizz.sh
+```
+
+The script requires Bash, `curl` (or `wget`), `sha256sum`, `mktemp` and the
+standard `install`/`mv` utilities. It never uses `sudo`, does not edit
+`.bashrc`/`.zshrc`, and prints an explicit `PATH` line if `~/.local/bin` is
+not already available. To pin a release:
+
+```bash
+bash /tmp/install-openblizz.sh --version v0.1.0
+```
+
+If the repository has no prebuilt asset yet, a maintainer must push the first
+`v*` tag; see [RELEASING.md](RELEASING.md). Other CPU architectures should use
+the source build below until matching release assets are published.
+
 ## Generic build
 
 ```bash
