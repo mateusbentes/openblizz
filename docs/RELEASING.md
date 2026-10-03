@@ -21,10 +21,13 @@ git tag -a v0.1.0 -m "OpenBlizz v0.1.0"
 git push origin v0.1.0
 ```
 
-The tag starts `.github/workflows/release-linux.yml` on GitHub. It runs on an
-Ubuntu 24.04 x86_64 runner, installs the CMake dependencies, builds with GCC,
-runs CTest, copies the binary to `openblizz-linux-x86_64`, creates
-`SHA256SUMS`, and publishes both files to the Release associated with the tag.
+The tag starts `.github/workflows/release-linux.yml` on GitHub. It runs two
+parallel jobs: x86_64 on `ubuntu-24.04` and AArch64 on `ubuntu-24.04-arm`.
+Each runner installs the CMake dependencies, builds with GCC and runs CTest.
+A final publish job collects both binaries, creates `SHA256SUMS`, and
+publishes the two architecture-specific assets to the Release associated with
+the tag. GitHub documents `ubuntu-24.04-arm` as a standard arm64 runner for
+public repositories (see the [GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)).
 The source tarballs generated automatically by GitHub are also available; the
 installer uses only the two explicit assets.
 
@@ -50,6 +53,7 @@ change. The installer URL for the newest release is:
 
 ```text
 https://github.com/mateusbentes/openblizz/releases/latest/download/openblizz-linux-x86_64
+https://github.com/mateusbentes/openblizz/releases/latest/download/openblizz-linux-aarch64
 https://github.com/mateusbentes/openblizz/releases/latest/download/SHA256SUMS
 ```
 
@@ -66,7 +70,12 @@ The installer and workflow must continue to agree on these exact names:
 | Asset | Contents |
 |---|---|
 | `openblizz-linux-x86_64` | executable, mode `0755`, built from `CMAKE_BUILD_TYPE=Release` |
-| `SHA256SUMS` | one line produced by `sha256sum`, containing the exact binary name |
+| `openblizz-linux-aarch64` | executable, mode `0755`, built from `CMAKE_BUILD_TYPE=Release` on an arm64 runner |
+| `SHA256SUMS` | two lines produced by `sha256sum`, containing both exact binary names |
+
+These are OpenBlizz client binaries. They are not Proton, FEX, Steam Runtime,
+or game binaries. Running Windows x86/x86-64 games on ARM64 remains dependent
+on the user's separately installed ARM64 Proton+FEX/umu stack.
 
 Do not replace the checksum with an unsigned download or a checksum hosted on
 another domain. The script fails closed if `SHA256SUMS` is missing, malformed,
@@ -74,12 +83,11 @@ or does not match the downloaded binary.
 
 ## Adding another architecture
 
-Keep each target isolated in its own GitHub Actions job and publish a distinct
-asset, for example `openblizz-linux-aarch64`. Add a native runner or a
-reproducible cross-compilation toolchain, run the same CTest suite where
-possible, generate one checksum line per asset, and then update the installer
-architecture map and this contract in the same change. Do not make the x86_64
-installer silently download a foreign binary.
+Keep each target isolated in the workflow matrix and publish a distinct asset.
+Add a native runner or a reproducible cross-compilation toolchain, run the same
+CTest suite where possible, generate one checksum line per asset, and then
+update the installer architecture map and this contract in the same change.
+Do not make the installer silently download a foreign binary.
 
 ## Security and rollback
 

@@ -19,9 +19,10 @@ proprietary asset, and it never asks for or stores your password.
 
 ## Install the latest Linux binary
 
-For Linux x86_64, the repository includes a user-local installer. It downloads
-the binary and its `SHA256SUMS` file from the latest GitHub Release, verifies
-the checksum, and atomically installs the result as `~/.local/bin/openblizz`.
+For Linux x86_64 and AArch64, the repository includes a user-local installer.
+It detects the CPU architecture, downloads the matching binary and its
+`SHA256SUMS` file from the latest GitHub Release, verifies the checksum, and
+atomically installs the result as `~/.local/bin/openblizz`.
 It never uses `sudo`, changes system directories, or modifies shell profiles:
 
 ```bash
@@ -42,9 +43,9 @@ curl -fsSL \
 
 The script also accepts `--version vX.Y.Z` to install a pinned release. When a
 new `v*` tag is pushed,
-the Linux GitHub Actions workflow publishes `openblizz-linux-x86_64` and
-`SHA256SUMS`; if the repository has no Release yet, the first such tag creates
-it.
+the Linux GitHub Actions workflow publishes `openblizz-linux-x86_64`,
+`openblizz-linux-aarch64` and `SHA256SUMS`; if the repository has no Release
+yet, the first such tag creates it.
 If `~/.local/bin` is not in `PATH` on your distribution, the script prints the
 one-line export to add to your shell profile; it does not edit that file.
 
@@ -71,6 +72,13 @@ openblizz launch --directory ~/Games/Warcraft3/x86_64 --exe "Warcraft III.exe" \
 
 `launch` needs [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher)
 (GE-Proton is downloaded automatically on first run) or Wine.
+
+On ARM64, `openblizz-linux-aarch64` is the native OpenBlizz client. Running
+the downloaded Windows x86/x86-64 game still requires an ARM64-capable
+Proton+FEX/umu stack installed separately; OpenBlizz does not bundle Proton,
+FEX, Steam Runtime or an x86-64 rootfs. See
+[docs/RUNTIME.md](docs/RUNTIME.md#linux-aarch64-openblizz-versus-protonfex)
+for the distinction and the explicit `--proton` example.
 
 ## Documentation
 
@@ -146,9 +154,9 @@ requirements). Warcraft III: Reforged is tested end to end.
 
 ## Limitations (honest list)
 
-- The prebuilt installer currently publishes a Linux x86_64/glibc binary;
-  other architectures should build from source until matching Release assets
-  are added.
+- The prebuilt installer currently publishes Linux x86_64/glibc and AArch64/
+  glibc binaries; other architectures should build from source until matching
+  Release assets are added.
 - Ownership comes from undocumented account-page endpoints; a Blizzard change
   can break `library scan` until the parser is updated (installing with
   `--force` keeps working).

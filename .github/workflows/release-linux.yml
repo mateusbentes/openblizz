@@ -12,12 +12,22 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build-linux-x86_64:
-    name: Build Linux x86_64
-    runs-on: ubuntu-24.04
+  build-linux:
+    name: Build Linux ${{ matrix.architecture }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x86_64
+            runner: ubuntu-24.04
+            asset: openblizz-linux-x86_64
+          - architecture: aarch64
+            runner: ubuntu-24.04-arm
+            asset: openblizz-linux-aarch64
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -39,19 +49,49 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
-      - name: Prepare release assets
+      - name: Prepare binary
         run: |
           mkdir -p dist
-          install -m 0755 build/openblizz dist/openblizz-linux-x86_64
-          (cd dist && sha256sum openblizz-linux-x86_64 > SHA256SUMS)
+          install -m 0755 build/openblizz "dist/${{ matrix.asset }}"
 
-      - name: Publish GitHub Release for version tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-release:
+    name: Publish Linux release assets
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-linux
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download architecture binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-openblizz-linux-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create checksums
+        run: |
+          set -euo pipefail
+          test -x dist/openblizz-linux-x86_64
+          test -x dist/openblizz-linux-aarch64
+          (cd dist && sha256sum openblizz-linux-x86_64 openblizz-linux-aarch64 > SHA256SUMS)
+
+      - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            dist/openblizz-linux-x86_64 dist/SHA256SUMS \
+            dist/openblizz-linux-x86_64 \
+            dist/openblizz-linux-aarch64 \
+            dist/SHA256SUMS \
             --verify-tag \
             --title "OpenBlizz $GITHUB_REF_NAME" \
             --generate-notes

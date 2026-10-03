@@ -23,9 +23,10 @@ cd openblizz
 
 ## Install a prebuilt Linux binary
 
-If you only want to use OpenBlizz on Linux x86_64, you do not need a compiler
-or a container. The installer downloads `openblizz-linux-x86_64` and the
-matching `SHA256SUMS` asset from the latest GitHub Release, verifies it, and
+If you only want to use OpenBlizz on Linux x86_64 or AArch64, you do not need a
+compiler or a container. The installer detects `uname -m`, downloads the
+matching `openblizz-linux-x86_64` or `openblizz-linux-aarch64` asset and the
+matching `SHA256SUMS` file from the latest GitHub Release, verifies it, and
 installs it atomically at `~/.local/bin/openblizz`:
 
 ```bash
@@ -46,7 +47,9 @@ bash /tmp/install-openblizz.sh --version v0.1.0
 
 If the repository has no prebuilt asset yet, a maintainer must push the first
 `v*` tag; see [RELEASING.md](RELEASING.md). Other CPU architectures should use
-the source build below until matching release assets are published.
+the source build below until matching release assets are published. The Linux
+Release workflow builds x86_64 on `ubuntu-24.04` and AArch64 on
+`ubuntu-24.04-arm`.
 
 ## Generic build
 
@@ -172,6 +175,33 @@ nix-shell -p git cmake gcc pkg-config curl openssl zlib lz4 nlohmann_json
 ```
 
 A `flake.nix` is not shipped yet; contributions welcome.
+
+### Homebrew on Linux (including AArch64)
+
+Homebrew does support Linux ARM64/AArch64. Its current support-tier
+documentation lists ARM64/AArch64 as a supported Linux architecture; Tier 1
+requires a supported Ubuntu release, glibc ≥ 2.39, the default prefix
+`/home/linuxbrew/.linuxbrew` (or a compatible short prefix), and available
+bottles. Formula-specific bottle availability still varies.
+
+For a local source build of OpenBlizz:
+
+```bash
+brew install cmake pkg-config curl openssl@3 zlib lz4 nlohmann-json
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+  -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"
+cmake --build build -j"$(nproc)"
+ctest --test-dir build --output-on-failure
+```
+
+For a future Homebrew formula, OpenBlizz should be built from its source
+tarball with architecture-neutral CMake dependencies (`curl`, `openssl@3`,
+`zlib`, `lz4`, `nlohmann-json` and CMake as a build dependency), not by
+downloading the GitHub prebuilt binary. Homebrew can then build the formula
+on both Intel x86_64 and ARM64 and produce bottles according to its CI and
+policy. The AArch64 GitHub Release and a Homebrew formula are complementary:
+the Release is a quick binary installer, while Homebrew owns reproducible
+formula builds and bottles.
 
 ### Solus
 

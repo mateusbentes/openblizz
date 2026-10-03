@@ -107,8 +107,9 @@ main() {
         machine=$(uname -m)
         case "$machine" in
             x86_64|amd64) asset=openblizz-linux-x86_64 ;;
+            aarch64|arm64) asset=openblizz-linux-aarch64 ;;
             *)
-                fail "no prebuilt asset for CPU architecture: $machine (the public Release currently provides x86_64)"
+                fail "no prebuilt asset for CPU architecture: $machine (the public Release provides x86_64 and aarch64)"
                 return 1
                 ;;
         esac

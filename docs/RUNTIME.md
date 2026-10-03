@@ -41,6 +41,41 @@ Check: `umu-run --version`.
 | `UMU-Proton` | umu's default: the latest stable Valve Proton with umu compatibility added |
 | absolute path | any Proton directory, e.g. `"$HOME/.steam/root/steamapps/common/Proton - Experimental"` or `~/.local/share/Steam/compatibilitytools.d/GE-Proton9-27` |
 
+## Linux AArch64: OpenBlizz versus Proton+FEX
+
+These are two different layers:
+
+1. **AArch64 OpenBlizz** is the native CLI binary published as
+   `openblizz-linux-aarch64`. It handles login, account scanning, NGDP/TACT
+   downloads, installation and verification directly on an ARM64 Linux host.
+2. **Proton ARM64 + FEX** is the game runtime. FEX translates x86/x86-64
+   Linux or Windows processes for ARM64, while Proton/Wine supplies the
+   Windows compatibility layer. It is what can make an x86-64 Windows game
+   such as Warcraft III run on an ARM64 Linux machine.
+
+OpenBlizz does **not** bundle Proton, FEX, an x86-64 root filesystem, Steam
+Runtime or game files. Its `launch` command only delegates to `umu-run` and
+passes `WINEPREFIX`, `PROTONPATH`, `GAMEID` and the executable. Therefore an
+ARM64 system needs an ARM64-capable umu/Proton+FEX stack installed separately.
+The ordinary `GE-Proton` auto-download path is not a promise of an ARM64 build;
+on ARM, pass the actual ARM64 Proton directory explicitly when required:
+
+```bash
+openblizz launch --backend umu \
+  --proton "/path/to/Proton ARM64" \
+  --directory "$HOME/Games/Warcraft3/x86_64" \
+  --exe "Warcraft III.exe" \
+  --prefix "$HOME/Games/openblizz/warcraft3" -- -launch
+```
+
+The exact Proton ARM64/FEX installation and rootfs setup depends on the ARM
+distribution and the platform (for example, an ARM64 Steam/SteamOS stack).
+Valve's Proton documentation requires an ARM64 build machine for ARM64 Proton
+and FEX's documentation describes the x86/x86-64 translation layer. OpenBlizz
+has not yet validated Warcraft III end-to-end on ARM64, so the AArch64 Release
+means **native OpenBlizz support**, not a guarantee that every Windows game
+runs under Proton+FEX.
+
 ## Warcraft III: Reforged
 
 ```bash

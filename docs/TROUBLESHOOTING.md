@@ -11,7 +11,7 @@ code 1. This page lists the common ones, grouped by phase.
 | `the release has no SHA256SUMS asset` | the Release was published manually or incompletely; do not bypass verification — republish it with `.github/workflows/release-linux.yml` |
 | `SHA256SUMS does not contain a checksum` / `SHA-256 mismatch` | wrong asset, corrupted download, or a tampered Release; the script intentionally leaves the existing `~/.local/bin/openblizz` untouched |
 | `~/.local/bin` is not in `PATH` | add the export printed by the script to `~/.bashrc`, `~/.zshrc` or the profile used by your shell, then open a new terminal |
-| `unsupported CPU architecture` | the current public Release contains Linux x86_64 only; use the source build or pass a separately published asset with `--asset` |
+| `no prebuilt asset for CPU architecture` / `unsupported CPU architecture` | the current public Release contains Linux x86_64 and AArch64 only; use the source build or pass a separately published asset with `--asset` |
 
 ## Build
 
@@ -66,6 +66,7 @@ code 1. This page lists the common ones, grouped by phase.
 | Symptom | Cause / fix |
 |---|---|
 | `sh: 1: umu-run: not found` | install umu-launcher ([RUNTIME.md](RUNTIME.md)) or use `--backend wine` |
+| ARM64 OpenBlizz installs correctly but the Windows game does not start | the AArch64 CLI and the game runtime are separate; install an ARM64-capable Proton+FEX/umu stack, configure its x86-64 rootfs, and pass that Proton directory with `--proton`. The default x86_64 GE-Proton download is not automatically an ARM64 runtime |
 | `game executable does not exist` | pass the directory that contains the `.exe` (for W3: `--directory DIR/x86_64`) or an absolute `--exe` path |
 | first launch "hangs" for minutes | umu is downloading GE-Proton and the Steam Runtime (~1 GB); run `UMU_LOG=1 openblizz launch ...` to watch progress |
 | Warcraft III opens then exits immediately | missing `-launch` after `--` |
