@@ -1,8 +1,10 @@
 # Publishing a Linux Release
 
 The prebuilt installer in `scripts/install-openblizz.sh` deliberately accepts
-only a GitHub Release asset whose SHA-256 checksum is published beside it. A
-normal branch push does not create a downloadable binary.
+only a GitHub Release asset whose SHA-256 checksum is published beside it. The
+workflow now builds and runs CTest on pushes to `main`, Pull Requests targeting
+`main`, and manual dispatches; it publishes downloadable assets only for a
+version tag beginning with `v`.
 
 ## First release
 
