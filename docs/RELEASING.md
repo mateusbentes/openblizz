@@ -26,8 +26,11 @@ parallel jobs: x86_64 on `ubuntu-24.04` and AArch64 on `ubuntu-24.04-arm`.
 Each runner installs the CMake dependencies, builds with GCC and runs CTest.
 A final publish job collects both binaries, creates `SHA256SUMS`, and
 publishes the two architecture-specific assets to the Release associated with
-the tag. GitHub documents `ubuntu-24.04-arm` as a standard arm64 runner for
-public repositories (see the [GitHub-hosted runners reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)).
+the tag. Because GitHub artifact transfer does not guarantee executable mode
+bits, that final job explicitly restores mode `0755` before checking and
+publishing the binaries. GitHub documents `ubuntu-24.04-arm` as a standard
+arm64 runner for public repositories (see the [GitHub-hosted runners
+reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)).
 The source tarballs generated automatically by GitHub are also available; the
 installer uses only the two explicit assets.
 

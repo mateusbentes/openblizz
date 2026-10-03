@@ -80,6 +80,11 @@ jobs:
       - name: Create checksums
         run: |
           set -euo pipefail
+          # upload-artifact/download-artifact do not guarantee executable
+          # permission bits, so restore the release mode before validation.
+          chmod 0755 dist/openblizz-linux-x86_64 dist/openblizz-linux-aarch64
+          test -f dist/openblizz-linux-x86_64
+          test -f dist/openblizz-linux-aarch64
           test -x dist/openblizz-linux-x86_64
           test -x dist/openblizz-linux-aarch64
           (cd dist && sha256sum openblizz-linux-x86_64 openblizz-linux-aarch64 > SHA256SUMS)
