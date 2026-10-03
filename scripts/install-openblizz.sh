@@ -136,7 +136,7 @@ main() {
     fi
 
     local expected actual
-    expected=$(awk -v file="$asset" '$2 == file || $2 == "*" file { print $1 }' "$checksums" | head -n 1)
+    expected=$(awk -v file="$asset" '{ name = $2; sub(/^.*\//, "", name); if (name == file) print $1 }' "$checksums" | head -n 1)
     [[ "$expected" =~ ^[[:xdigit:]]{64}$ ]] || {
         fail "SHA256SUMS does not contain a checksum for $asset"
         return 1
