@@ -52,26 +52,44 @@ one-line export to add to your shell profile; it does not edit that file.
 ## Quick start
 
 ```bash
-# 1. Build (Debian/Ubuntu shown; every distribution in docs/BUILDING.md)
-sudo apt install cmake g++ pkg-config libcurl4-openssl-dev libssl-dev zlib1g-dev liblz4-dev nlohmann-json3-dev
-git clone https://github.com/mateusbentes/openblizz.git && cd openblizz
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$(nproc)"
-sudo cmake --install build          # optional: /usr/local/bin/openblizz
+# 1. Get the openblizz binary (prebuilt, no sudo; see above) ...
+curl -fsSL https://raw.githubusercontent.com/mateusbentes/openblizz/main/scripts/install-openblizz.sh | bash
+#    ... or build from source (Debian/Ubuntu shown; every distribution in docs/BUILDING.md)
+#    sudo apt install cmake g++ pkg-config libcurl4-openssl-dev libssl-dev zlib1g-dev liblz4-dev nlohmann-json3-dev
+#    git clone https://github.com/mateusbentes/openblizz.git && cd openblizz
+#    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$(nproc)"
+#    sudo cmake --install build      # optional: puts openblizz in /usr/local/bin
+#    The steps below assume `openblizz` is in PATH (prebuilt installer or
+#    cmake --install). After a source build without installing, replace
+#    `openblizz` with `./build/openblizz` (run from the repository directory).
 
-# 2. Log in once (opens an isolated window of your default browser)
+# 2. Install umu-launcher, which runs the games through Proton (GE-Proton is
+#    downloaded automatically on first launch). Package names per distribution
+#    are in docs/RUNTIME.md; e.g. Arch: sudo pacman -S umu-launcher,
+#    Fedora: sudo dnf install umu-launcher, others: zipapp/.deb/.rpm from
+#    https://github.com/Open-Wine-Components/umu-launcher/releases
+umu-run --version
+
+# 3. Log in once (opens an isolated window of your default browser; OpenBlizz
+#    never sees your password). The session is kept and scanned automatically.
 openblizz login
 
-# 3. See what you own, grouped by franchise
+# 4. See what you own, grouped by franchise
 openblizz library list
 
-# 4. Install and play (W3 Reforged, ~35 GB for enUS)
+# 5. Install (Warcraft III: Reforged, ~35 GB for enUS; ptBR adds that language)
 openblizz install w3 --directory ~/Games/Warcraft3 --locale ptBR
+
+# 6. Play. -launch skips the hand-off to the Battle.net app; log in on the
+#    game's own login screen. First start is slow (prefix + GE-Proton download).
 openblizz launch --directory ~/Games/Warcraft3/x86_64 --exe "Warcraft III.exe" \
                  --prefix ~/Games/openblizz/warcraft3 -- -launch
 ```
 
-`launch` needs [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher)
-(GE-Proton is downloaded automatically on first run) or Wine.
+Later: `openblizz update w3 --directory ~/Games/Warcraft3` to patch,
+`verify`/`repair` to check the files, and [docs/RUNTIME.md](docs/RUNTIME.md#adding-a-game-to-steam-steam-deck--big-picture)
+to add the game to Steam as a non-Steam game. Without umu, `launch --backend wine`
+uses the system Wine instead.
 
 On ARM64, `openblizz-linux-aarch64` is the native OpenBlizz client. Running
 the downloaded Windows x86/x86-64 game still requires an ARM64-capable
