@@ -30,6 +30,33 @@ Make sure `~/.local/bin` is in `PATH` when using a user installation.
 
 Check: `umu-run --version`.
 
+### Ubuntu 26.04 (resolute)
+
+Use the `ubuntu-resolute` assets from the umu release, not the `ubuntu-noble`
+packages. The architecture-specific package contains the compiled `pyzstd`
+module; using the noble package on resolute can fail with
+`pyzstd module: Can't import compiled .so/.pyd file`.
+
+```bash
+cd ~/Downloads
+wget https://github.com/Open-Wine-Components/umu-launcher/releases/download/1.4.4/python3-umu-launcher_1.4.4-1_amd64_ubuntu-resolute.deb
+wget https://github.com/Open-Wine-Components/umu-launcher/releases/download/1.4.4/umu-launcher_1.4.4-1_all_ubuntu-resolute.deb
+sudo dpkg -i python3-umu-launcher_1.4.4-1_amd64_ubuntu-resolute.deb \
+  umu-launcher_1.4.4-1_all_ubuntu-resolute.deb
+umu-run --version
+```
+
+The package may install `bwrap-userns-restrict-umu` and trigger an AppArmor
+reload. If `apparmor.service` fails, identify the offending profile before
+removing anything; keep Ubuntu's `bwrap-userns-restrict` profile enabled. Do
+not copy the noble `.deb` to resolute.
+
+On the first launch, umu downloads GE-Proton and Steam Runtime 4 under
+`~/.local/share/Steam/compatibilitytools.d/` and `~/.local/share/umu/`.
+Downloads are resumable; leave `.parts` files in place after a timeout. A
+successful setup ends with lines similar to `Using steamrt4 (latest)` and
+`Running 'GE-Proton...`.
+
 ## Choosing a Proton build
 
 `--proton` is passed as `PROTONPATH`:
@@ -86,9 +113,12 @@ openblizz launch --directory ~/Games/Warcraft3/x86_64 --exe "Warcraft III.exe" \
 
 - `-launch` is mandatory: without it the executable tries to hand over to the
   Battle.net app and exits.
-- First launch takes longer (prefix creation, shader cache). Login inside the
-  game uses Blizzard's own in-game login; online play works as with the
-  official installation.
+- First launch takes longer (GE-Proton download, Steam Runtime 4 setup,
+  prefix creation and shader cache). Login inside the game uses Blizzard's own
+  in-game login; online play works as with the official installation.
+- Verified on Ubuntu 26.04/KDE Wayland with umu-launcher 1.4.4,
+  GE-Proton 11-7 and Steam Runtime 4: umu reported `Running 'GE-Proton11-7-x86_64'`
+  and the process reached `fsync: up and running`.
 - `--locale ptBR` stores the Brazilian Portuguese assets in addition to the
   mandatory enUS set; switch the language in the game's options.
 - Saved games and settings: `<prefix>/drive_c/users/<user>/Documents/Warcraft III/`.

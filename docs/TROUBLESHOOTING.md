@@ -71,6 +71,10 @@ code 1. This page lists the common ones, grouped by phase.
 | Symptom | Cause / fix |
 |---|---|
 | `sh: 1: umu-run: not found` | install umu-launcher ([RUNTIME.md](RUNTIME.md)) or use `--backend wine` |
+| `pyzstd module: Can't import compiled .so/.pyd file` | the `ubuntu-noble` umu package was installed on Ubuntu 26.04; replace it with the matching `ubuntu-resolute` architecture-specific `.deb` |
+| `umu has not been setup for the user` / `Could not find steamrt4_platform_*` | the first umu launch was interrupted before Steam Runtime 4 finished. Run the same launch again; umu resumes `.parts` downloads and stores the runtime in `~/.local/share/umu/` |
+| `apparmor.service` fails after installing umu | identify the failing profile with `systemctl status apparmor` and `journalctl -xeu apparmor`; retain Ubuntu's `bwrap-userns-restrict` profile and fix/disable only the offending umu profile. The umu executable can still be tested with `umu-run --version` |
+| `fsync: up and running` appears after the Proton command | this indicates that Proton reached the game process; if no window appears, continue with the black-screen/Vulkan and game-specific diagnostics below |
 | ARM64 OpenBlizz installs correctly but the Windows game does not start | the AArch64 CLI and the game runtime are separate; install an ARM64-capable Proton+FEX/umu stack, configure its x86-64 rootfs, and pass that Proton directory with `--proton`. The default x86_64 GE-Proton download is not automatically an ARM64 runtime |
 | `game executable does not exist` | pass the directory that contains the `.exe` (for W3: `--directory DIR/x86_64`) or an absolute `--exe` path |
 | first launch "hangs" for minutes | umu is downloading GE-Proton and the Steam Runtime (~1 GB); run `UMU_LOG=1 openblizz launch ...` to watch progress |
