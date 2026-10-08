@@ -85,6 +85,7 @@ for the distinction and the explicit `--proton` example.
 | Document | Content |
 |---|---|
 | [docs/BUILDING.md](docs/BUILDING.md) | dependencies and build commands for Debian/Ubuntu, Fedora/RHEL, Arch, SteamOS, openSUSE, Alpine, Void, Gentoo, Nix, Solus, macOS and Windows; install, dev and sanitizer builds; packaging notes |
+| [docs/SCOPE.md](docs/SCOPE.md) | what is installable and what is only listed (Battle.net exclusives, mobile-origin PC builds, Call of Duty, third-party shop titles, classic CD-key games) and where to play the rest; the umu/Proton/Wine runtime stack |
 | [docs/COMMANDS.md](docs/COMMANDS.md) | every command and option: `products`, `versions`, `cdns`, `plan`, `vfs`, `login`, `logout`, `library`, `install`, `update`, `verify`, `repair`, `launch`; exit codes; typical workflow |
 | [docs/RUNTIME.md](docs/RUNTIME.md) | running games: installing umu per distribution, choosing a Proton build, Warcraft III specifics, adding the game to Steam / Steam Deck, `.desktop` launcher, performance variables |
 | [docs/FILES.md](docs/FILES.md) | where everything lives (cookie jar, browser profile, library.json, cache), the game directory layout, environment variables, network endpoints contacted |
@@ -151,7 +152,11 @@ with the evidence for each entry.
 
 "Install" means OpenBlizz can download the build through NGDP; whether a
 title runs well under Proton depends on the game (anti-cheat, launcher
-requirements). Warcraft III: Reforged is tested end to end.
+requirements). Warcraft III: Reforged is tested end to end. Mobile-origin
+games (Diablo Immortal, Warcraft Rumble, Hearthstone) are installed as their
+Windows builds; phone builds are not on NGDP. The full category-by-category
+breakdown, including Call of Duty and third-party shop titles, is in
+[docs/SCOPE.md](docs/SCOPE.md).
 
 ## Limitations (honest list)
 

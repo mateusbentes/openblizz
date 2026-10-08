@@ -73,6 +73,9 @@ be installed** by OpenBlizz, for two different reasons:
   actual game is not delivered through the Blizzard CDN at all, so there is
   nothing OpenBlizz could download.
 
+See [SCOPE.md](SCOPE.md) for the full category breakdown and the recommended
+way to play each kind of title on Linux.
+
 ### `openblizz versions <product> [--region us]`
 
 Prints the current build from the Ribbit `versions` endpoint:
