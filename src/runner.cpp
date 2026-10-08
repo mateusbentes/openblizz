@@ -27,18 +27,22 @@ std::string env_assignment(const char* name, const std::string& value) {
 int Runner::launch(const LaunchOptions& options) {
     if (options.directory.empty()) throw std::runtime_error("launch requires --directory");
     if (options.executable.empty()) throw std::runtime_error("launch requires --exe");
-    if (!std::filesystem::exists(options.directory)) {
+    const auto working_directory = std::filesystem::absolute(options.directory);
+    if (!std::filesystem::exists(working_directory)) {
         throw std::runtime_error("game directory does not exist: " + options.directory.string());
     }
 
     const auto executable = options.executable.is_absolute()
         ? options.executable
-        : options.directory / options.executable;
+        : working_directory / options.executable;
     if (!std::filesystem::exists(executable)) {
         throw std::runtime_error("game executable does not exist: " + executable.string());
     }
 
-    std::string command;
+    // Windows games commonly resolve DLLs, configuration files and launcher
+    // resources relative to their working directory.  Running OpenBlizz from
+    // the source/build directory must not change that behaviour.
+    std::string command = "cd " + shell_quote(working_directory.string()) + " && ";
     if (options.backend == "proton" || options.backend == "umu") {
         command += env_assignment("WINEPREFIX", options.prefix.empty()
             ? (std::filesystem::current_path() / ".openblizz-prefix").string()
