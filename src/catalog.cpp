@@ -79,15 +79,17 @@ std::vector<ProductDescriptor> Catalog::products() const {
         {"s1", "StarCraft: Remastered", "starcraft", "s1", true},
         {"s2", "StarCraft II", "starcraft", "s2", true},
         {"wow", "World of Warcraft", "warcraft", "wow", true},
-        {"anbs", "Diablo Immortal", "diablo", "anbs", true},
+        // Mobile-origin titles: NGDP ships their Windows build only; the phone
+        // builds come from the app stores and are out of reach by design.
+        {"anbs", "Diablo Immortal (PC build)", "diablo", "anbs", true},
         {"rtro", "Blizzard Arcade Collection", "arcade", "rtro", true},
         {"wow_classic", "World of Warcraft Classic", "warcraft", "wow_classic", true},
-        {"gryphon", "Warcraft Rumble", "warcraft", "gryphon", true},
+        {"gryphon", "Warcraft Rumble (PC build)", "warcraft", "gryphon", true},
         {"osi", "Diablo II: Resurrected", "diablo", "osi", true},
         {"d3", "Diablo III", "diablo", "d3", true},
         {"fenris", "Diablo IV", "diablo", "fenris", true},
         {"pro", "Overwatch", "overwatch", "pro", true},
-        {"hsb", "Hearthstone", "hearthstone", "hsb", true},
+        {"hsb", "Hearthstone (PC build)", "hearthstone", "hsb", true},
         {"hero", "Heroes of the Storm", "heroes", "hero", true},
         // Classic CD-key titles still listed by the account page. They are not
         // distributed through NGDP, so they are catalogued for ownership only.

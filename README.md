@@ -144,10 +144,10 @@ with the evidence for each entry.
 | `w2r`, `w1r` | Warcraft II / I Remastered | yes | licence-only; ownership via purchase history |
 | `w2bn`, `war1` | Warcraft II BNE, Warcraft: Orcs & Humans | yes | classic CD keys |
 | `s1`, `s2` | StarCraft: Remastered, StarCraft II | yes | |
-| `anbs`, `osi`, `d3`, `fenris` | Diablo Immortal, II: Resurrected, III, IV | yes | |
-| `wow`, `wow_classic`, `gryphon` | World of Warcraft, Classic, Warcraft Rumble | yes | |
+| `anbs`, `osi`, `d3`, `fenris` | Diablo Immortal (PC build), II: Resurrected, III, IV | yes | `anbs`: Windows build only, not the phone game |
+| `wow`, `wow_classic`, `gryphon` | World of Warcraft, Classic, Warcraft Rumble (PC build) | yes | `gryphon`: Windows build only |
 | `rtro` | Blizzard Arcade Collection | yes | licence-only; purchase history |
-| `hsb`, `hero`, `pro` | Hearthstone, Heroes of the Storm, Overwatch | yes | |
+| `hsb`, `hero`, `pro` | Hearthstone (PC build), Heroes of the Storm, Overwatch | yes | |
 | `d2-classic`, `d2-lod` | Diablo II, Lord of Destruction | no (legacy installer) | ownership tracked only |
 
 "Install" means OpenBlizz can download the build through NGDP; whether a
