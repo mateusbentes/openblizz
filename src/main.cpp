@@ -273,8 +273,13 @@ int main(int argc, char** argv) {
                     current_family = product.family;
                     std::cout << ob::family_label(product.family) << '\n';
                 }
-                table.add({product.id, product.name,
-                           product.supported ? "openblizz install " + product.id : "legacy installer only (ownership tracked)"});
+                std::string install_cell = "openblizz install " + product.id;
+                if (!product.supported) {
+                    install_cell = product.family == "callofduty"
+                        ? "not installable (encrypted content, needs Battle.net client)"
+                        : "legacy installer only (ownership tracked)";
+                }
+                table.add({product.id, product.name, install_cell});
             }
             if (!table.empty()) table.print();
             std::cout << "\nCurated catalog of known products, not your account library (see `openblizz library list`;\n"

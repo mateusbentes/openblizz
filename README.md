@@ -130,7 +130,8 @@ labels their output accordingly rather than pretending they are stable.
 Blizzard Arcade, Hearthstone, Heroes of the Storm, Overwatch, Other) in aligned
 tables. `products` shows the curated catalog, `products --all` every NGDP code,
 `products --shop` the full storefront (including Call of Duty and third-party
-titles, which are listed but cannot be installed), `library list` what you own
+titles, which are listed but cannot be installed — see
+[docs/COMMANDS.md](docs/COMMANDS.md#openblizz-products)), `library list` what you own
 with the evidence for each entry.
 
 ## Supported products
@@ -160,7 +161,10 @@ requirements). Warcraft III: Reforged is tested end to end.
 - Ownership comes from undocumented account-page endpoints; a Blizzard change
   can break `library scan` until the parser is updated (installing with
   `--force` keeps working).
-- Call of Duty and third-party storefront titles are not installable.
+- Call of Duty titles are on NGDP (`versions`/`cdns` work) but their content is
+  TACT-encrypted with keys only the Battle.net client receives, and they need
+  that client at runtime; third-party storefront titles have placeholder NGDP
+  entries only. Neither can be installed by OpenBlizz.
 - Encrypted TACT content (some products' protected files) fails with an
   explicit error instead of being decrypted.
 - Only the Windows x86_64 build of each product is selected.

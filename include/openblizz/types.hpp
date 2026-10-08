@@ -4,6 +4,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <utility>
 #include <unordered_map>
 #include <vector>
 
@@ -15,6 +16,15 @@ struct ProductDescriptor {
     std::string family;
     std::string agent_product;
     bool supported{true};
+    // Why `install`/`plan` refuse the product when `supported` is false.
+    std::string unsupported_reason;
+
+    ProductDescriptor() = default;
+    ProductDescriptor(std::string id_, std::string name_, std::string family_, std::string agent_product_,
+                      bool supported_ = true, std::string unsupported_reason_ = {})
+        : id(std::move(id_)), name(std::move(name_)), family(std::move(family_)),
+          agent_product(std::move(agent_product_)), supported(supported_),
+          unsupported_reason(std::move(unsupported_reason_)) {}
 };
 
 enum class OwnershipState {

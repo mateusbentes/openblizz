@@ -59,6 +59,11 @@ std::vector<std::string> split_hosts(const std::string& value) {
     return hosts;
 }
 
+const char* const kCodReason =
+    "Call of Duty content on the NGDP CDN is TACT-encrypted with keys that only the Battle.net client "
+    "receives after an entitlement check, and the game needs that client and its anti-cheat at runtime. "
+    "OpenBlizz can show its versions/cdns and ownership but cannot install or launch it.";
+
 } // namespace
 
 Catalog::Catalog(HttpClient& http) : http_(http) {}
@@ -88,6 +93,20 @@ std::vector<ProductDescriptor> Catalog::products() const {
         // distributed through NGDP, so they are catalogued for ownership only.
         {"d2-classic", "Diablo II (classic, legacy installer)", "diablo", "", false},
         {"d2-lod", "Diablo II: Lord of Destruction (classic, legacy installer)", "diablo", "", false},
+        // Call of Duty titles are published through the same Ribbit/NGDP
+        // endpoints (versions, cdns and build configs are public), but their
+        // `versions` rows carry a KeyRing: the game content is TACT-encrypted
+        // with keys that only the Battle.net client receives after an
+        // entitlement check, and the games require that client plus the
+        // Ricochet anti-cheat at runtime. They are catalogued for ownership
+        // and metadata (`versions`, `cdns`) only.
+        {"odin", "Call of Duty: Modern Warfare (2019) / Warzone", "callofduty", "odin", false, kCodReason},
+        {"zeus", "Call of Duty: Black Ops Cold War", "callofduty", "zeus", false, kCodReason},
+        {"fore", "Call of Duty: Vanguard", "callofduty", "fore", false, kCodReason},
+        {"lazr", "Call of Duty: Modern Warfare II (2022)", "callofduty", "lazr", false, kCodReason},
+        {"nina", "Call of Duty (NGDP code nina)", "callofduty", "nina", false, kCodReason},
+        {"auks", "Call of Duty (NGDP code auks)", "callofduty", "auks", false, kCodReason},
+        {"wlby", "Call of Duty (NGDP code wlby)", "callofduty", "wlby", false, kCodReason},
     };
 }
 
@@ -251,6 +270,7 @@ const ProductDescriptor& find_product(const std::vector<ProductDescriptor>& prod
     });
     if (it == products.end()) throw std::runtime_error("unsupported catalog product: " + id);
     if (!it->supported) {
+        if (!it->unsupported_reason.empty()) throw std::runtime_error(it->name + ": " + it->unsupported_reason);
         throw std::runtime_error(it->name + " is not distributed through NGDP; OpenBlizz can only report its ownership. "
                                  "Use the legacy installer from the Battle.net account page.");
     }

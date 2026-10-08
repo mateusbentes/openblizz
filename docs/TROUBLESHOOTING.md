@@ -45,7 +45,8 @@ code 1. This page lists the common ones, grouped by phase.
 | a game you own shows `not owned` | it is not attached to a game account and was not found in the purchase history (gifts, very old orders, other region). Run `library scan --dump /tmp/bnet.json` and open an issue with the `titleId`/`productTitle` (the dump contains no password, but does contain your account id and purchase history — redact before sharing). Meanwhile `library add <id>` lets you install |
 | a game you own shows `unknown` | licence-only title with no purchase record in regions 1-3; same as above |
 | products appear under "Other Battle.net products" | the NGDP code was found on your account but is not in the curated catalog yet; it is still installable. Please report the code |
-| `Purchases not mapped to an installable product` lists a game | DLC, services, Call of Duty or third-party titles (e.g. The Witcher 3 Remastered) are not distributed through NGDP and cannot be installed by OpenBlizz |
+| `Purchases not mapped to an installable product` lists a game | DLC, services and third-party titles (e.g. The Witcher 3 Remastered) have no real NGDP content; Call of Duty titles are on NGDP but TACT-encrypted with keys only the Battle.net client receives. None can be installed by OpenBlizz |
+| `plan`/`install` says `Call of Duty ...: ... TACT-encrypted ...` | expected: Call of Duty is catalogued for ownership and `versions`/`cdns` only. Play it through the official Battle.net client |
 | scan says `Account session expired; renewing it through the site login flow` and then fails | the renewal redirect ended on the password page: the long-lived `remember.auth.permit` cookie is gone. `openblizz login` again |
 
 ## Catalog, plan, install

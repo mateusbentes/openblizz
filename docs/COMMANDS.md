@@ -55,9 +55,23 @@ openblizz products --shop [--family SLUG]
 | `--shop` | Battle.net storefront navigation menu | every game sold on the shop (Blizzard, Call of Duty and third-party titles), with a `Library` column cross-referenced against your scanned library and the matching OpenBlizz id when installable |
 | `--shop --family SLUG` | one storefront family page | the editions/bundles of that family (`warcraft-rts`, `starcraft-remastered`, `diablo-iv`, `blizzard-arcade-collection`, ...). Slugs are printed by `--shop` |
 
-Third-party and Call of Duty products are listed for completeness but **cannot
-be installed** by OpenBlizz: they are not distributed through the public NGDP
-CDNs that it speaks.
+Call of Duty and third-party products are listed for completeness but **cannot
+be installed** by OpenBlizz, for two different reasons:
+
+- **Call of Duty** (`odin`, `zeus`, `fore`, `lazr`, `nina`, `auks`, `wlby`, ...)
+  *is* published through Ribbit/NGDP: `versions`, `cdns` and the build config
+  are public and readable. However the `versions` row carries a **KeyRing** and
+  the game content is TACT-encrypted with keys that only the Battle.net client
+  receives after an entitlement check; the games also require that client and
+  its anti-cheat at runtime. OpenBlizz therefore catalogues them under the
+  *Call of Duty* franchise for ownership and metadata only, and `plan`/`install`
+  stop with an explicit message instead of downloading undecryptable data.
+  Implementing this would mean reproducing Blizzard's key delivery and the
+  Battle.net client's runtime, which is out of scope for a clean-room project.
+- **Third-party storefront titles** (The Witcher 3 Remastered and similar) only
+  have *placeholder* NGDP entries (empty root, a 39-byte install manifest): the
+  actual game is not delivered through the Blizzard CDN at all, so there is
+  nothing OpenBlizz could download.
 
 ### `openblizz versions <product> [--region us]`
 
