@@ -55,6 +55,10 @@ public:
     [[nodiscard]] bool contains(const std::string& encoding_key_hex) const;
     [[nodiscard]] std::optional<CascEntry> find(const std::string& encoding_key_hex) const;
     [[nodiscard]] std::size_t size() const;
+    // Objects found in the data.NNN archives but missing from every journal
+    // during the last open() (an interrupted run); they are re-indexed and
+    // written out by the next commit().
+    [[nodiscard]] std::size_t salvaged() const noexcept { return salvaged_; }
 
     // Appends an encoded object. Thread-safe. Returns false when already present.
     bool append(const std::string& encoding_key_hex, const std::vector<std::uint8_t>& encoded);
@@ -82,6 +86,7 @@ private:
     std::uint16_t current_archive_{};
     std::uint64_t current_offset_{};
     bool opened_{false};
+    std::size_t salvaged_{0};
     mutable std::mutex mutex_;
 };
 

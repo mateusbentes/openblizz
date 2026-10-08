@@ -47,6 +47,10 @@ code 1. This page lists the common ones, grouped by phase.
 | products appear under "Other Battle.net products" | the NGDP code was found on your account but is not in the curated catalog yet; it is still installable. Please report the code |
 | `Purchases not mapped to an installable product` lists a game | DLC, services and third-party titles (e.g. The Witcher 3 Remastered) have no real NGDP content; Call of Duty titles are on NGDP but TACT-encrypted with keys only the Battle.net client receives. None can be installed by OpenBlizz |
 | `plan`/`install` says `Call of Duty ...: ... TACT-encrypted ...` | expected: Call of Duty is catalogued for ownership and `versions`/`cdns` only. Play it through the official Battle.net client |
+| `N of M CASC objects could not be downloaded ... Run the same install command again` | some objects failed (CDN 404/5xx or network drop) after 3 range retries; everything else was stored and journaled. Re-run the identical `install` command: only the missing objects are fetched |
+| `all CDN hosts failed for <hash>: HTTP GET returned status 404 .../data/xx/yy/<hash>` | the object exists only inside a CDN archive and the per-object fallback was tried after the archive range request failed; a transient network error is the usual root cause. Since the retry/tolerance change this is reported at the end instead of aborting; just re-run |
+| `Recovered N CASC objects left unindexed by an interrupted run.` | informational: a previous run was killed (Ctrl+C, power loss, OOM) between journal flushes; the objects already in `Data/data/data.NNN` were re-indexed instead of downloaded again |
+| after an interruption `already stored` is much lower than expected | before this fix journals were flushed only every 1 GiB; update OpenBlizz and re-run `install`: `open()` now rebuilds the index from the archives, so nothing already on disk is fetched twice |
 | scan says `Account session expired; renewing it through the site login flow` and then fails | the renewal redirect ended on the password page: the long-lived `remember.auth.permit` cookie is gone. `openblizz login` again |
 
 ## Catalog, plan, install

@@ -12,6 +12,7 @@
 #include <mutex>
 #include <set>
 #include <stdexcept>
+#include <sstream>
 #include <thread>
 #include <unordered_set>
 
@@ -20,7 +21,8 @@ namespace {
 
 constexpr std::uint64_t kRangeChunkBytes = 32ull * 1024 * 1024;   // one HTTP range request
 constexpr std::uint64_t kRangeMaxGapBytes = 1ull * 1024 * 1024;   // unwanted bytes we accept inside a chunk
-constexpr std::uint64_t kCommitEveryBytes = 1ull * 1024 * 1024 * 1024;
+constexpr std::uint64_t kCommitEveryBytes = 256ull * 1024 * 1024;   // journal flush interval
+constexpr int kRangeAttempts = 3;                                    // archive range retries before per-object fallback
 
 std::vector<std::uint8_t> read_file(const std::filesystem::path& path) {
     std::ifstream input(path, std::ios::binary);
@@ -494,6 +496,10 @@ std::size_t Installer::install_data(const InstallPlan& plan, const std::filesyst
                                     std::size_t jobs) const {
     CascStorage storage(directory / "Data");
     storage.open();
+    if (storage.salvaged() > 0) {
+        std::cout << "Recovered " << storage.salvaged()
+                  << " CASC objects left unindexed by an interrupted run.\n";
+    }
 
     struct Piece {
         const DataObject* object;
@@ -555,6 +561,12 @@ std::size_t Installer::install_data(const InstallPlan& plan, const std::filesyst
     std::atomic<std::uint64_t> since_commit{0};
     std::mutex output_mutex;
     std::mutex commit_mutex;
+    std::mutex failure_mutex;
+    std::vector<std::string> failures;   // per-object errors; the run continues and reports them at the end
+    const auto record_failure = [&](const DataObject& object, const std::string& what) {
+        std::lock_guard lock(failure_mutex);
+        failures.push_back(object.encoding_key + " (" + object.source + "): " + what);
+    };
     auto last_report = std::chrono::steady_clock::now();
 
     const auto store = [&](const DataObject& object, std::vector<std::uint8_t> encoded, bool allow_retry) {
@@ -592,32 +604,60 @@ std::size_t Installer::install_data(const InstallPlan& plan, const std::filesyst
             const auto& task = tasks[index];
             if (task.archive_key.empty()) {
                 const auto& object = *task.pieces.front().object;
-                store(object, catalog_.fetch_data(plan.cdn, object.encoding_key), false);
+                try {
+                    store(object, catalog_.fetch_data(plan.cdn, object.encoding_key), false);
+                } catch (const std::exception& error) {
+                    record_failure(object, error.what());
+                }
                 return;
             }
+            // A transient network error on the range request must not turn
+            // into a fatal 404: archive-only objects do not exist as direct
+            // CDN files, so retry the range first and only then fall back.
             std::vector<std::uint8_t> block;
-            try {
-                block = catalog_.fetch_archive_range(plan.cdn, task.archive_key, task.offset,
-                                                     static_cast<std::uint32_t>(task.size));
-            } catch (const std::exception&) {
-                block.clear();   // fall back to per-object direct downloads below
+            std::string range_error;
+            for (int attempt = 1; attempt <= kRangeAttempts && block.empty(); ++attempt) {
+                try {
+                    block = catalog_.fetch_archive_range(plan.cdn, task.archive_key, task.offset,
+                                                         static_cast<std::uint32_t>(task.size));
+                } catch (const std::exception& error) {
+                    range_error = error.what();
+                    block.clear();
+                    if (attempt < kRangeAttempts) std::this_thread::sleep_for(std::chrono::seconds(attempt));
+                }
             }
             for (const auto& piece : task.pieces) {
                 const auto begin = piece.location->offset - task.offset;
                 const auto end = begin + piece.location->encoded_size;
-                if (block.size() >= end) {
-                    store(*piece.object, std::vector<std::uint8_t>(block.begin() + static_cast<std::ptrdiff_t>(begin),
-                                                                   block.begin() + static_cast<std::ptrdiff_t>(end)), true);
-                } else {
-                    store(*piece.object, catalog_.fetch_data(plan.cdn, piece.object->encoding_key), false);
+                try {
+                    if (block.size() >= end) {
+                        store(*piece.object, std::vector<std::uint8_t>(block.begin() + static_cast<std::ptrdiff_t>(begin),
+                                                                       block.begin() + static_cast<std::ptrdiff_t>(end)), true);
+                    } else {
+                        try {
+                            store(*piece.object, catalog_.fetch_data(plan.cdn, piece.object->encoding_key), false);
+                        } catch (const std::exception& direct_error) {
+                            throw std::runtime_error(std::string(direct_error.what()) +
+                                                     (range_error.empty() ? "" : "; archive range: " + range_error));
+                        }
+                    }
+                } catch (const std::exception& error) {
+                    record_failure(*piece.object, error.what());
                 }
             }
         });
     } catch (...) {
-        storage.commit();   // keep what was downloaded so the next run resumes
+        try { storage.commit(); } catch (...) {}   // keep what was downloaded so the next run resumes
         throw;
     }
     storage.commit();
+    if (!failures.empty()) {
+        std::ostringstream message;
+        message << failures.size() << " of " << pending_count << " CASC objects could not be downloaded; "
+                << stored.load() << " were stored and will not be fetched again. First error: " << failures.front()
+                << ". Run the same install command again to retry the missing objects.";
+        throw std::runtime_error(message.str());
+    }
     return stored.load();
 }
 

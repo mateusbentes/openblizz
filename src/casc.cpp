@@ -265,7 +265,50 @@ void CascStorage::open() {
         }
     }
     current_archive_ = last_archive.value_or(0);
-    current_offset_ = last_archive ? std::filesystem::file_size(archive_path(current_archive_)) : 0;
+    current_offset_ = 0;
+    salvaged_ = 0;
+    // Walk every archive and re-index objects whose journal entry was lost
+    // (the run was interrupted before commit()). Each object starts with a
+    // 30-byte header that carries the reversed EKey, the total size and a
+    // Jenkins checksum of its first 0x16 bytes, which is enough to tell a
+    // complete object from a partial tail. A partial tail is cut off so the
+    // next append reuses the space instead of leaving garbage behind.
+    if (last_archive) {
+        for (std::uint16_t archive = 0; archive <= *last_archive; ++archive) {
+            const auto path = archive_path(archive);
+            std::error_code error;
+            if (!std::filesystem::exists(path, error)) continue;
+            const std::uint64_t file_size = std::filesystem::file_size(path, error);
+            if (error) continue;
+            std::ifstream input(path, std::ios::binary);
+            std::uint64_t offset = 0;
+            std::vector<std::uint8_t> header(kCascDataHeaderSize);
+            while (offset + kCascDataHeaderSize <= file_size) {
+                input.seekg(static_cast<std::streamoff>(offset));
+                input.read(reinterpret_cast<char*>(header.data()), static_cast<std::streamsize>(header.size()));
+                if (!input) break;
+                const std::uint32_t total = get_u32le(header, 0x10);
+                const std::uint32_t checksum = get_u32le(header, 0x16);
+                if (total < kCascDataHeaderSize || offset + total > file_size ||
+                    checksum != jenkins_hashlittle(header.data(), 0x16, kDataHeaderSeed)) {
+                    break;   // partial or foreign data: everything from here on is unusable
+                }
+                CascEntry entry;
+                for (std::size_t i = 0; i < kCascKeyBytes; ++i) entry.key[i] = header[15 - i];
+                entry.archive = archive;
+                entry.offset = static_cast<std::uint32_t>(offset);
+                entry.size = total;
+                if (entries_.emplace(entry.key, entry).second) {
+                    dirty_[casc_bucket(entry.key)] = true;
+                    ++salvaged_;
+                }
+                offset += total;
+            }
+            input.close();
+            if (offset < file_size) std::filesystem::resize_file(path, offset, error);
+            if (archive == *last_archive) current_offset_ = offset;
+        }
+    }
     opened_ = true;
 }
 

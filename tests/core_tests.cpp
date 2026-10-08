@@ -431,6 +431,29 @@ int main() {
             if (item.path().extension() == ".idx") ++journals;
         }
         assert(journals == 16);   // superseded journals were removed
+        {
+            // Interrupted run: objects appended without commit(), plus a partial tail.
+            openblizz::CascStorage storage(casc_root);
+            storage.open();
+            assert(storage.salvaged() == 0);
+            assert(storage.append("0123456789abcdef0123456789abcdef", blob_b));
+            const auto archive = casc_root / "data" / "data.000";
+            const auto good_size = std::filesystem::file_size(archive);
+            std::ofstream(archive, std::ios::binary | std::ios::app).write("PARTIAL", 7);
+            assert(std::filesystem::file_size(archive) == good_size + 7);
+            // no commit()
+            openblizz::CascStorage reopened(casc_root);
+            reopened.open();
+            assert(reopened.salvaged() == 1);
+            assert(reopened.size() == 4);
+            assert(reopened.contains("0123456789abcdef0123456789abcdef"));
+            assert(reopened.read(*reopened.find("0123456789abcdef0123456789abcdef")) == blob_b);
+            assert(std::filesystem::file_size(archive) == good_size);   // partial tail cut off
+            reopened.commit();
+            openblizz::CascStorage again(casc_root);
+            again.open();
+            assert(again.salvaged() == 0 && again.size() == 4);
+        }
         std::filesystem::remove_all(casc_root);
     }
     const auto build_info = openblizz::format_build_info({"us", "aa", "bb", "cc", 42, "tpr/war3",

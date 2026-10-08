@@ -241,6 +241,14 @@ Downloads are resumable: re-running `install` skips already verified objects
 through CDN archives using HTTP Range requests, so interrupted downloads waste
 little bandwidth.
 
+**Resume and failure handling.** `install` is idempotent: every CASC object
+already present in `Data/data` (indexed by the `.idx` journals, or recovered
+from the archives on start-up if a previous run was interrupted) is skipped,
+journals are flushed every 256 MiB, archive range requests are retried three
+times before falling back to per-object downloads, and objects that still fail
+are reported at the end instead of aborting the run. Re-running the same
+command finishes the job.
+
 ### `openblizz update <product> --directory DIR [--region us] [--locale enUS] [--jobs 4]`
 
 Re-resolves the current build and downloads only objects that changed or are
