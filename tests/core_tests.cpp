@@ -1,3 +1,6 @@
+// The tests rely on assert(); keep it active even in Release builds (NDEBUG),
+// otherwise asserts with side effects would silently disappear.
+#undef NDEBUG
 #include "openblizz/casc.hpp"
 #include "openblizz/browser_login.hpp"
 #include "openblizz/formats.hpp"
