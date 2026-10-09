@@ -226,19 +226,32 @@ directly and let Steam's Proton run it. *Target*: `"Warcraft III.exe"`,
 *Launch options*: `-launch`, *Compatibility*: force a Proton version. Use a
 different prefix than umu's or the game will see an unknown prefix layout.
 
-## Desktop launcher (.desktop file)
+## Optional desktop launcher (.desktop file)
+
+This file is optional. It is not required for `openblizz launch`, and it is
+separate from adding the game to Steam. Use it only if you want a Warcraft III
+entry in the KDE/application menu. Desktop entries do not expand `~`, and they
+may not inherit the interactive shell's `PATH`, so use an absolute path to
+OpenBlizz. The release installer normally uses
+`/home/USER/.local/bin/openblizz`; replace it with the absolute path to your
+build binary if you run a source checkout.
 
 ```ini
 [Desktop Entry]
 Type=Application
 Name=Warcraft III: Reforged
-Exec=openblizz launch --directory /home/USER/Games/Warcraft3/x86_64 --exe "Warcraft III.exe" --prefix /home/USER/Games/openblizz/warcraft3 -- -launch
+Comment=Launch Warcraft III: Reforged with OpenBlizz
+Exec=/home/USER/.local/bin/openblizz launch --directory /home/USER/Games/Warcraft3/x86_64 --exe "Warcraft III.exe" --prefix /home/USER/Games/openblizz/warcraft3 -- -launch
 Path=/home/USER/Games/Warcraft3/x86_64
-Icon=/home/USER/Games/Warcraft3/x86_64/Warcraft III.exe
+Terminal=false
 Categories=Game;
 ```
 
-Save as `~/.local/share/applications/openblizz-w3.desktop`.
+Replace `USER` with the Linux account name and save as
+`~/.local/share/applications/openblizz-w3.desktop`. The omitted `Icon` entry
+lets KDE use a generic icon; add an absolute path to a local PNG or SVG if you
+have one. If you want a different Proton build, add `--backend umu --proton
+"/absolute/path/to/GE-Proton"` to `Exec`.
 
 ## Performance and debugging
 
