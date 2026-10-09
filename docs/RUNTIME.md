@@ -197,11 +197,14 @@ game files.
 
 The executable name differs per product; after `install` look inside the game
 directory (`ls DIR DIR/x86_64`). StarCraft: Remastered also accepts `-launch`
-to skip the Battle.net hand-off. Warcraft I/II Remastered are licence-only
-titles (ownership comes from the purchase history). Diablo II / Lord of
-Destruction (`d2-classic`, `d2-lod`) are classic CD-key games that are not
-distributed through NGDP: use the legacy installer from your account page and
-run it with `launch --backend wine` or umu.
+to skip the Battle.net hand-off. Warcraft I/II Remastered are purchase-history
+entitlements rather than `games-and-subs` entries, but they remain installable
+NGDP products; ownership is resolved from the account's purchase history.
+Diablo II / Lord of Destruction (`d2-classic`, `d2-lod`) are classic CD-key
+games that are not distributed through NGDP. OpenBlizz does not download or
+redistribute their installers: download the legacy installer from your account
+page, run it with `launch --backend wine` or `launch --backend umu`, and then
+launch the installed game through the same prefix.
 
 ## Optional: adding a game to Steam (Steam Deck / Big Picture)
 
