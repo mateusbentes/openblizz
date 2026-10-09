@@ -114,8 +114,8 @@ openblizz launch --directory ~/Games/Warcraft3/x86_64 --exe "Warcraft III.exe" \
 - `-launch` is mandatory: without it the executable tries to hand over to the
   Battle.net app and exits.
 - First launch takes longer (GE-Proton download, Steam Runtime 4 setup,
-  prefix creation and shader cache). Login inside the game uses Blizzard's own
-  in-game login.
+  prefix creation and shader cache). When the game opens successfully, login
+  inside the game uses Blizzard's own in-game login.
 - The installation path and Proton hand-off have been exercised on Ubuntu
   26.04/KDE Wayland with umu-launcher 1.4.4, GE-Proton 11-7 and Steam Runtime
   4: umu reported `Running 'GE-Proton11-7-x86_64'` and the process reached
@@ -145,11 +145,11 @@ umu-launcher 1.4.4 and GE-Proton10-10. On first use, umu may report that
 that is normal first-run setup. A fresh prefix is recommended when changing
 from another Proton build.
 
-The test also emitted many GStreamer `wrong ELF class` warnings from the
-Proton environment, but the game still launched. Treat those warnings as
-non-fatal when the game opens; if the process exits without a window, try the
-same command with a fresh prefix and GE-Proton10-10 before changing the game
-files.
+The test emitted many GStreamer `wrong ELF class` warnings from the Proton
+environment, but they were non-fatal because the game still launched. These
+warnings may be ignored when the game opens successfully. If the process exits
+without a window, try a fresh prefix and GE-Proton10-10 before changing the
+game files.
 
 ## Other products
 
