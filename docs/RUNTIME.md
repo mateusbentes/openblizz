@@ -203,14 +203,21 @@ Destruction (`d2-classic`, `d2-lod`) are classic CD-key games that are not
 distributed through NGDP: use the legacy installer from your account page and
 run it with `launch --backend wine` or umu.
 
-## Adding a game to Steam (Steam Deck / Big Picture)
+## Optional: adding a game to Steam (Steam Deck / Big Picture)
+
+This integration is optional. OpenBlizz works as a standalone command-line
+launcher and does not require Steam. Add a game to Steam when you want the
+non-Steam-game experience, Big Picture, Steam Input/controller layouts,
+per-game artwork, or launching from a Steam Deck. This does not move or copy
+the installed game; Steam simply invokes OpenBlizz with the selected arguments.
 
 1. Install the game with OpenBlizz and run it once with `openblizz launch` so
    the prefix exists.
 2. Steam → *Games* → *Add a Non-Steam Game to My Library* → *Browse* → pick
-   `openblizz` (`/usr/local/bin/openblizz` or the build directory binary).
+   `openblizz` (normally `/home/USER/.local/bin/openblizz`; use the absolute
+   path to the build binary when running from a source checkout).
 3. Right-click the new entry → *Properties*:
-   - **Target**: path to `openblizz`
+   - **Target**: absolute path to `openblizz`
    - **Start in**: the game directory
    - **Launch options**:
      ```
