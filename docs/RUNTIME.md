@@ -17,6 +17,11 @@ same pressure-vessel container Steam uses. `--proton GE-Proton` (the default)
 makes umu download and keep the latest GE-Proton automatically on first use
 (stored under `~/.local/share/Steam/compatibilitytools.d/`; the Steam Runtime container itself goes to `~/.local/share/umu`).
 
+Choose one installation method below. If `umu-run --version` already works,
+skip this section. The Ubuntu 26.04 subsection is only needed when installing
+umu from Debian packages; it is not needed when using the zipapp, a working
+distribution package, or a source/user installation.
+
 | Distribution | Install |
 |---|---|
 | Arch, Manjaro, EndeavourOS, CachyOS, Garuda | `sudo pacman -S umu-launcher` (official `multilib` repository; enable `[multilib]` in `/etc/pacman.conf`) |
@@ -30,11 +35,12 @@ Make sure `~/.local/bin` is in `PATH` when using a user installation.
 
 Check: `umu-run --version`.
 
-### Ubuntu 26.04 (resolute)
+### Ubuntu 26.04 (Resolute): Debian-package path only
 
-Use the `ubuntu-resolute` assets from the umu release, not the `ubuntu-noble`
-packages. The architecture-specific package contains the compiled `pyzstd`
-module; using the noble package on resolute can fail with
+If you are installing the `.deb` assets on Ubuntu 26.04, use the
+`ubuntu-resolute` assets from the umu release, not the `ubuntu-noble` packages.
+The architecture-specific package contains the compiled `pyzstd` module;
+using the noble package on Resolute can fail with
 `pyzstd module: Can't import compiled .so/.pyd file`.
 
 ```bash
@@ -51,11 +57,13 @@ reload. If `apparmor.service` fails, identify the offending profile before
 removing anything; keep Ubuntu's `bwrap-userns-restrict` profile enabled. Do
 not copy the noble `.deb` to resolute.
 
-On the first launch, umu downloads GE-Proton and Steam Runtime 4 under
-`~/.local/share/Steam/compatibilitytools.d/` and `~/.local/share/umu/`.
-Downloads are resumable; leave `.parts` files in place after a timeout. A
-successful setup ends with lines similar to `Using steamrt4 (latest)` and
-`Running 'GE-Proton...`.
+On the first launch, umu downloads GE-Proton and the Steam Runtime required by
+that Proton build under `~/.local/share/Steam/compatibilitytools.d/` and
+`~/.local/share/umu/`. For example, GE-Proton10-10 may use Steam Runtime 3
+(Sniper), while newer Proton builds may use Steam Runtime 4. Downloads are
+resumable; leave `.parts` files in place after a timeout. A successful setup
+ends with lines similar to `Using steamrt3 (latest)` or `Using steamrt4
+(latest)`, followed by `Running 'GE-Proton...`.
 
 ## Choosing a Proton build
 
