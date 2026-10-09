@@ -18,9 +18,9 @@ makes umu download and keep the latest GE-Proton automatically on first use
 (stored under `~/.local/share/Steam/compatibilitytools.d/`; the Steam Runtime container itself goes to `~/.local/share/umu`).
 
 Choose one installation method below. If `umu-run --version` already works,
-skip this section. The Ubuntu 26.04 subsection is only needed when installing
-umu from Debian packages; it is not needed when using the zipapp, a working
-distribution package, or a source/user installation.
+skip this section. The Ubuntu 24.04 and 26.04 subsections are only needed when
+installing umu from Debian packages; they are not needed when using the
+zipapp, a working distribution package, or a source/user installation.
 
 | Distribution | Install |
 |---|---|
@@ -34,6 +34,21 @@ distribution package, or a source/user installation.
 Make sure `~/.local/bin` is in `PATH` when using a user installation.
 
 Check: `umu-run --version`.
+
+### Ubuntu 24.04 (Noble): Debian-package path only
+
+Ubuntu 24.04 LTS is still a supported release. If you install the `.deb`
+assets there, use the `ubuntu-noble` packages from the umu release. Do not use
+these packages on Ubuntu 26.04; use the Resolute packages below instead.
+
+```bash
+cd ~/Downloads
+wget https://github.com/Open-Wine-Components/umu-launcher/releases/download/1.4.4/python3-umu-launcher_1.4.4-1_amd64_ubuntu-noble.deb
+wget https://github.com/Open-Wine-Components/umu-launcher/releases/download/1.4.4/umu-launcher_1.4.4-1_all_ubuntu-noble.deb
+sudo dpkg -i python3-umu-launcher_1.4.4-1_amd64_ubuntu-noble.deb \
+  umu-launcher_1.4.4-1_all_ubuntu-noble.deb
+umu-run --version
+```
 
 ### Ubuntu 26.04 (Resolute): Debian-package path only
 
