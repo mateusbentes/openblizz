@@ -145,9 +145,10 @@ std::vector<InstallEntry> Installer::select_entries(const InstallManifest& manif
     for (std::size_t i = 0; i < manifest.entries.size(); ++i) {
         bool include = true;
         for (const auto& required : required_tags) {
+            const auto required_name = lower(required);
             const auto tag = std::find_if(manifest.tags.begin(), manifest.tags.end(),
                                           [&](const auto& candidate) {
-                                              return candidate.name == required;
+                                              return lower(candidate.name) == required_name;
                                           });
             // A product may omit a category, in which case the absence of the
             // selector is not a reason to discard every file.
