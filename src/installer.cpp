@@ -141,15 +141,28 @@ Installer::Installer(Catalog& catalog, std::filesystem::path cache_root)
 std::vector<InstallEntry> Installer::select_entries(const InstallManifest& manifest,
                                                     const std::string& locale) const {
     std::vector<InstallEntry> selected;
-    const std::vector<std::string> required_tags{locale, "Windows", "Release"};
+    // Some legacy manifests publish locale-specific CASC data (for example
+    // ptbr) but only ship the Windows bootstrap files under enUS. If the
+    // requested locale has no install-manifest tag, selecting no locale tag
+    // would include every language variant with the same output path.
+    // Prefer the enUS bootstrap in that case; the requested locale remains
+    // selected separately by select_data_objects().
+    std::string manifest_locale = locale;
+    const auto has_tag = [&](const std::string& name) {
+        const auto wanted = lower(name);
+        return std::find_if(manifest.tags.begin(), manifest.tags.end(),
+                            [&](const auto& candidate) {
+                                return lower(candidate.name) == wanted;
+                            });
+    };
+    if (has_tag(manifest_locale) == manifest.tags.end() && has_tag("enUS") != manifest.tags.end()) {
+        manifest_locale = "enUS";
+    }
+    const std::vector<std::string> required_tags{manifest_locale, "Windows", "Release"};
     for (std::size_t i = 0; i < manifest.entries.size(); ++i) {
         bool include = true;
         for (const auto& required : required_tags) {
-            const auto required_name = lower(required);
-            const auto tag = std::find_if(manifest.tags.begin(), manifest.tags.end(),
-                                          [&](const auto& candidate) {
-                                              return lower(candidate.name) == required_name;
-                                          });
+            const auto tag = has_tag(required);
             // A product may omit a category, in which case the absence of the
             // selector is not a reason to discard every file.
             if (tag != manifest.tags.end() && !tag_has_file(*tag, i)) {
