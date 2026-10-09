@@ -162,6 +162,25 @@ openblizz launch \
   --prefix "$HOME/Games/openblizz/warcraft3-legacy-ge10"
 ```
 
+Use the command above as the normal diagnostic form. If the game is already
+known to launch correctly and you only want a cleaner terminal, Bash can filter
+the two non-fatal warning patterns from standard error:
+
+```bash
+openblizz launch \
+  --backend umu \
+  --proton "$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton10-10" \
+  --directory "$HOME/Games/Warcraft3-legacy" \
+  --exe "Warcraft III.exe" \
+  --prefix "$HOME/Games/openblizz/warcraft3-legacy-ge10" \
+  2> >(grep -vE 'GStreamer-WARNING|wrong ELF class' >&2)
+```
+
+The filtered form only hides matching lines; it does not remove files, change
+Proton, disable GStreamer, or alter the game. It uses Bash process substitution
+and should not be used while diagnosing a new failure, because a future error
+containing the same text would also be hidden.
+
 This path was verified with Warcraft III Legacy/TFT `1.29.2.9232-legacy-tft`,
 umu-launcher 1.4.4 and GE-Proton10-10. On first use, umu may report that
 `steamrt3` is missing and then download and verify the Sniper Steam Runtime;
