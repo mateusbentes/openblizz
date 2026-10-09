@@ -2,25 +2,28 @@
 
 Every command is `openblizz <command> [subcommand] [<product>] [options]`.
 Options can appear in any order after the command; flags that take a value use
-`--name VALUE`. Product ids are the NGDP codes printed by `openblizz products`
-(`w3`, `s1`, `rtro`, ...). Run `openblizz --help` for the compact summary.
+`--name VALUE`. Product ids are OpenBlizz catalog ids printed by
+`openblizz products` (`w3`, `s1`, `rtro`, ...). Most are NGDP codes, but the
+curated catalog also contains legacy or ownership-only ids such as `d2-classic`
+and `d2-lod`. Run `openblizz --help` for the compact summary.
 
 Exit codes:
 
 | Code | Meaning |
 |---|---|
 | `0` | success (for `verify`: everything matched) |
-| `1` | error; the reason is printed to stderr as `OpenBlizz error: ...` |
+| `1` | OpenBlizz command error; the reason is printed to stderr as `OpenBlizz error: ...` |
 | `2` | `verify` found missing or corrupt files (listed on stdout) |
+| other non-zero status | `launch` returns the status produced by the child process through the host shell; it is not normalized by OpenBlizz |
 
-Common options (accepted by every network command):
+Common concepts and their usual scopes (not every option is accepted by every command):
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--region us` | `us` | Ribbit/version server region: `us`, `eu`, `kr`, `tw`, `cn`, `sg`. Affects which build and CDN hosts are used, not your account |
-| `--locale enUS` | `enUS` | Install/verify locale tag (`enUS`, `ptBR`, `deDE`, `esES`, `frFR`, `itIT`, `koKR`, `plPL`, `ruRU`, `zhCN`, `zhTW`, ...) |
-| `--cookie-jar PATH` | `~/.config/openblizz/battlenet-cookies.txt` | where the browser session is stored/read |
-| `--library-file PATH` | `~/.local/state/openblizz/library.json` | where ownership state is stored/read |
+| `--region us` | `us` | Ribbit/version server region for commands that expose it: `us`, `eu`, `kr`, `tw`, `cn`, `sg`. It affects builds/CDN hosts, not your account |
+| `--locale enUS` | `enUS` | locale for plan/install/update/verify/repair (`enUS`, `ptBR`, `deDE`, `esES`, `frFR`, `itIT`, `koKR`, `plPL`, `ruRU`, `zhCN`, `zhTW`, ...) |
+| `--cookie-jar PATH` | XDG config default | browser session path for login/logout/scan and account validation; account-library auto-refresh uses the default jar in the current implementation |
+| `--library-file PATH` | XDG state default | ownership state path for library commands and account-gated install/update/repair |
 
 ## Typical workflow
 
@@ -51,9 +54,12 @@ openblizz products --shop [--family SLUG]
 | Mode | Source | Shows |
 |---|---|---|
 | (default) | built-in curated catalog | the Blizzard titles OpenBlizz knows how to handle, grouped by franchise (Warcraft, StarCraft, Diablo, Blizzard Arcade, Hearthstone, Heroes of the Storm, Overwatch), with the install command for each. Classic CD-key titles (Diablo II, LoD) are shown as "legacy installer only" |
-| `--all` | Ribbit `v2/summary` | every published NGDP product code (hundreds, including PTR/beta/internal codes), with the franchise when known and "Other Battle.net products" otherwise |
-| `--shop` | Battle.net storefront navigation menu | every game sold on the shop (Blizzard, Call of Duty and third-party titles), with a `Library` column cross-referenced against your scanned library and the matching OpenBlizz id when installable |
+| `--all` | Ribbit `v2/summary` | every published summary row without a non-empty `Flags` field, with columns `Product code`, `Account titleId`, and `Ribbit seqn`; many are PTR/beta/internal codes |
+| `--shop` | Battle.net storefront navigation menu | storefront games exposed by the current navigation/family pages (Blizzard, Call of Duty and third-party titles), with a `Library` column cross-referenced against your scanned library and the matching OpenBlizz id when installable |
 | `--shop --family SLUG` | one storefront family page | the editions/bundles of that family (`warcraft-rts`, `starcraft-remastered`, `diablo-iv`, `blizzard-arcade-collection`, ...). Slugs are printed by `--shop` |
+
+The shop request currently uses the US storefront (`us.shop.battle.net/en-us`);
+there is no `--region` selector for `--shop` yet.
 
 Call of Duty and third-party products are listed for completeness but **cannot
 be installed** by OpenBlizz, for two different reasons:
@@ -91,9 +97,9 @@ Prints each CDN path and its hosts (`tpr/war3  us.cdn.blizzard.com level3.blizza
 openblizz plan w3 [--region us] [--locale enUS] [--all-locales] [--no-data] [--data-limit BYTES]
 ```
 
-Resolves everything `install` would do **without writing to a game
-directory**: downloads build/CDN config, encoding, install and download
-manifests, archive indexes (cached under `~/.cache/openblizz`) and, for TVFS
+Resolves the metadata and content references needed by `install` **without
+writing to a game directory**: downloads build/CDN config, encoding and
+install manifests, archive indexes (cached under the XDG cache) and, for TVFS
 products, the virtual file system; then prints the summary (version, build
 config, selected files, selected bytes, encoding mappings). Use it to see the
 download size before committing disk space.
@@ -104,16 +110,16 @@ Lists the TVFS manifests of the current build (`vfs-root` and the nested
 `vfs-N` entries) with their encoding keys and sizes. Only meaningful for
 products with a TVFS root (currently Warcraft III: Reforged).
 
-### `openblizz vfs list <product> [--region us] [--root war3.w3mod] [--manifests-only] [--summary]`
+### `openblizz vfs list <product> [--region us] [--root PATH] [--manifests-only] [--summary]`
 
 Walks the virtual file system and prints every virtual path with its content
 key and size.
 
 | Option | Meaning |
 |---|---|
-| `--root PATH` | restrict to a subtree, e.g. `war3.w3mod` or `war3.w3mod/_locales/ptbr.w3mod` |
+| `--root PATH` | restrict to a subtree, e.g. `war3.w3mod` or `war3.w3mod:_locales:ptbr.w3mod`; nested manifest paths use `:` |
 | `--manifests-only` | only show entries that are themselves nested manifests |
-| `--summary` | per-top-level-directory counts and byte totals instead of every file |
+| `--summary` | suppresses per-file rows and prints global virtual-file, nested-manifest, content-byte and encoded-byte totals |
 
 ---
 
@@ -122,7 +128,8 @@ key and size.
 ### `openblizz login`
 
 ```
-openblizz login [--browser-exe PATH|FLATPAK_ID] [--timeout 600] [--keep-browser] [--cookie-jar PATH]
+openblizz login [--browser-exe PATH|FLATPAK_ID] [--timeout 600] [--keep-browser]
+                 [--cookie-jar PATH] [--profile-dir PATH] [--account-host HOST]
 ```
 
 1. Picks a browser: `--browser-exe`, else `$OPENBLIZZ_BROWSER`, else the desktop
@@ -138,14 +145,16 @@ openblizz login [--browser-exe PATH|FLATPAK_ID] [--timeout 600] [--keep-browser]
    OpenBlizz does not see or store the password.
 4. When the account page loads, OpenBlizz reads the session cookies for
    `battle.net`, verifies them against `account.battle.net/api/`, saves them with
-   `0600` permissions to the cookie jar, closes the browser window and runs
-   `library scan`.
+   `0600` permissions to the cookie jar, closes the browser window (unless
+   `--keep-browser` was supplied) and runs `library scan`.
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--browser-exe` | auto | path to a browser binary, or a flatpak id (`org.mozilla.firefox`, `com.brave.Browser`) |
 | `--timeout` | `600` | seconds to wait for you to finish logging in |
 | `--keep-browser` | off | leave the browser window open after the session is captured (debugging) |
+| `--profile-dir` | auto | override the isolated browser profile directory |
+| `--account-host` | `account.battle.net` | account site host used for the login flow; intended for regional diagnostics |
 
 ### `openblizz logout [--cookie-jar PATH]`
 
@@ -156,11 +165,14 @@ scan` after the next login to refresh it).
 
 ## Library (ownership)
 
-Ownership state is a JSON file (`~/.local/state/openblizz/library.json`,
-`0600`) that `install`/`update`/`repair` consult before touching the CDN. It
-is refreshed automatically when older than 6 hours and a valid session exists.
+Ownership state is a JSON file (by default under
+`$XDG_STATE_HOME/openblizz/library.json`, normally
+`~/.local/state/openblizz/library.json`, mode `0600`). `install`/`update`/`repair`
+consult it before touching the CDN. Account-dependent commands may refresh it
+automatically when older than 6 hours and a valid session exists; `verify` does
+not require a session or perform an ownership check.
 
-### `openblizz library scan [--dump PATH] [--cookie-jar PATH] [--library-file PATH]`
+### `openblizz library scan [--dump PATH] [--cookie-jar PATH] [--library-file PATH] [--account-host HOST]`
 
 Queries, with the saved session, the same internal JSON endpoints the Battle.net
 account page uses:
@@ -169,7 +181,7 @@ account page uses:
 |---|---|
 | `account.battle.net/api/games-and-subs` | game accounts; `titleId` is the FourCC of the NGDP code (`22323` = `W3`, `1095647827` = `ANBS`), so any NGDP product on your account is recognised, including ones absent from the curated catalog |
 | `account.battle.net/api/classic-games` | classic CD keys (Diablo II, Warcraft II BNE, StarCraft Anthology, ...) |
-| `account.battle.net/api/transactions?regionId=1,2,3` | purchase history; resolves licence-only titles (Warcraft I/II Remastered, Blizzard Arcade Collection, bundles). Refunded or charged-back orders are ignored |
+| `account.battle.net/api/transactions?regionId=1`, `2`, and `3` | purchase history; resolves purchase-history entitlements (Warcraft I/II Remastered, Blizzard Arcade Collection, bundles). Refunded or charged-back orders are ignored |
 
 Resulting states: `owned`, `not owned` (title absent from an endpoint that
 would list it, or `Trial`), `unknown` (could not be checked), `owned (manual)`
@@ -192,7 +204,8 @@ Prints the owned products grouped by franchise with `Id`, `Game`, `Status`,
 ### `openblizz library add <product>` / `openblizz library remove <product>`
 
 Manual override for products the account page cannot express. `add` marks the
-product `owned (manual)` so `install` proceeds without `--force`; it is
+product `owned (manual)` so ownership gating does not require `--force`; a
+valid session is still required by `install`, `update` and `repair`. It is
 recorded as manual, not as proof of ownership. `remove` deletes the manual
 entry (scanned entries are rebuilt by the next scan).
 
@@ -200,8 +213,11 @@ entry (scanned entries are rebuilt by the next scan).
 
 ## Installing and maintaining a game
 
-All four commands take `<product> --directory DIR` and require a valid session
-(`openblizz login`). They print the plan summary first, then act.
+`install`, `update` and `repair` take `<product> --directory DIR` and require a
+valid session (`openblizz login`) for account validation. `verify` takes the
+same directory and does not require an account session, although it still
+resolves the current build and may need network access. All four print the plan
+summary first, then act.
 
 Before downloading they check ownership: `not owned` aborts (override with
 `--force`), `unknown` only warns, `owned`/`owned (manual)` proceeds.
@@ -210,7 +226,8 @@ Before downloading they check ownership: `not owned` aborts (override with
 
 ```
 openblizz install w3 --directory ~/Games/Warcraft3 [--region us] [--locale enUS]
-                  [--all-locales] [--no-data] [--jobs 4] [--limit N] [--data-limit BYTES] [--force]
+                  [--all-locales] [--no-data] [--jobs 4] [--limit N] [--data-limit BYTES]
+                  [--cookie-jar PATH] [--library-file PATH] [--force]
 ```
 
 | Option | Default | Meaning |
@@ -233,11 +250,12 @@ DIR/
   x86_64/...
   Data/config/..              build config, cdn config, patch config
   Data/indices/*.index        archive indexes
-  Data/data/*.idx, data.NNN   local CASC storage with the TVFS content
+  Data/data/*.idx, Data/data/data.NNN  local CASC storage with the TVFS content
 ```
 
-Downloads are resumable: re-running `install` skips already verified objects
-(`(already verified)`) and continues where it stopped. Objects are fetched
+Downloads are resumable: re-running `install` skips objects already present in
+the local CASC index (`(already verified)` is the current progress label) and
+continues where it stopped. Objects are fetched
 through CDN archives using HTTP Range requests, so interrupted downloads waste
 little bandwidth.
 
@@ -249,7 +267,7 @@ times before falling back to per-object downloads, and objects that still fail
 are reported at the end instead of aborting the run. Re-running the same
 command finishes the job.
 
-### `openblizz update <product> --directory DIR [--region us] [--locale enUS] [--jobs 4]`
+### `openblizz update <product> --directory DIR [--region us] [--locale enUS] [--jobs 4] [--cookie-jar PATH] [--library-file PATH]`
 
 Re-resolves the current build and downloads only objects that changed or are
 missing, then rewrites `.build.info`. Same as `install` with the default
@@ -268,9 +286,12 @@ Checks the installation against the current build:
 
 Prints one line per problem and exits `2` when anything is wrong, `0` otherwise.
 
-### `openblizz repair <product> --directory DIR [--region us] [--locale enUS] [--jobs 4]`
+### `openblizz repair <product> --directory DIR [--region us] [--locale enUS] [--jobs 4] [--cookie-jar PATH] [--library-file PATH]`
 
-Re-downloads everything `verify --deep` would flag and prints `Files repaired: N`.
+Runs the normal (non-deep) verification pass and re-downloads install-manifest
+files that fail their content check plus CASC objects that are missing or have
+a size mismatch. It does not hash every CASC object; use `verify --deep` first
+when you need a full content-integrity audit. It prints `Files repaired: N`.
 
 ---
 
@@ -289,7 +310,7 @@ openblizz launch --directory DIR --exe GAME.exe [--prefix PREFIX]
 | `--exe FILE` | required | executable name or absolute path |
 | `--prefix PATH` | `./.openblizz-prefix` | `WINEPREFIX` for Proton/Wine; use a dedicated directory per game |
 | `--backend` | `proton` | `proton` and `umu` both run `umu-run` (Proton via the Unified Launcher); `wine` runs system Wine; `native` executes the file directly |
-| `--proton NAME` | `GE-Proton` | `PROTONPATH` for umu: `GE-Proton` (latest GE, downloaded by umu on first run), `GE-Proton9-27`, or an absolute path to a Proton install (e.g. `~/.steam/root/steamapps/common/Proton - Experimental`) |
+| `--proton NAME` | `GE-Proton` | `PROTONPATH` for both `proton` and `umu`: `GE-Proton` (latest GE, downloaded by umu on first run), `GE-Proton9-27`, or an absolute path to a Proton install (e.g. `~/.steam/root/steamapps/common/Proton - Experimental`) |
 | `-- ARGS` | none | everything after `--` goes to the game |
 
 The exact command line is printed (`Launching: ...`) so it can be pasted into a

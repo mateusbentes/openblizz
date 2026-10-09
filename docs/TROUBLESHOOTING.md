@@ -1,7 +1,9 @@
 # Troubleshooting
 
-Every error is printed as `OpenBlizz error: <reason>` on stderr with exit
-code 1. This page lists the common ones, grouped by phase.
+Command exceptions are printed as `OpenBlizz error: <reason>` on stderr with
+exit code 1. `verify` returns 2 when it finds mismatches; `launch` can return a
+non-zero status from the child process. This page lists the common problems,
+grouped by phase.
 
 ## Prebuilt installer
 
@@ -19,10 +21,10 @@ code 1. This page lists the common ones, grouped by phase.
 |---|---|
 | `Could NOT find CURL` / `OpenSSL` / `ZLIB` | development packages missing; see the per-distribution list in [BUILDING.md](BUILDING.md) |
 | `A required package was not found ... liblz4` | install `liblz4-dev` / `lz4-devel` / `lz4` and make sure `pkg-config` is installed |
-| `Could not find NLOHMANN_JSON_INCLUDE_DIR` | install `nlohmann-json3-dev` / `json-devel` / `nlohmann-json`, or pass `-DNLOHMANN_JSON_INCLUDE_DIR=/path/containing/nlohmann` |
+| `Could not find NLOHMANN_JSON_INCLUDE_DIR` | install `nlohmann-json3-dev` / `json-devel` / `nlohmann-json`, or pass `-DNLOHMANN_JSON_INCLUDE_DIR=/path` where `/path/nlohmann/json.hpp` exists |
 | `CMake 3.20 or higher is required` | use your distribution's backports, `pip install cmake`, or the Kitware APT repository |
 | errors about `std::ranges`, `<span>`, `consteval`, designated initialisers | compiler too old; GCC ≥ 11 or Clang ≥ 14 (`-DCMAKE_CXX_COMPILER=g++-12`) |
-| linker errors mentioning `OPENSSL_1_1` or `CRYPTO_` | mixed OpenSSL 1.1 / 3.x headers and libraries; `cmake --fresh -S . -B build` after fixing packages |
+| linker errors mentioning `OPENSSL_1_1` or `CRYPTO_` | mixed OpenSSL 1.1 / 3.x headers and libraries; remove the old build directory and reconfigure with `rm -rf build && cmake -S . -B build` after fixing packages |
 
 ## Login
 
@@ -30,21 +32,21 @@ code 1. This page lists the common ones, grouped by phase.
 |---|---|
 | `no supported browser found` | install Firefox or a Chromium-family browser, or point `--browser-exe PATH` / `OPENBLIZZ_BROWSER=/path` to one (flatpak id also accepted) |
 | `timed out waiting for the Battle.net login to complete` (default 600 s) | finish the login in that window (password, MFA, captcha); increase with `--timeout 1200`. If the page is stuck on a captcha, retry: Battle.net sometimes serves a second Arkose challenge |
-| `the browser exited before the login completed` / `the browser closed the automation connection` | you closed the window, or a sandboxed browser could not use the profile directory. Try `--browser-exe firefox` (native package) or delete `~/.config/openblizz/browser-profile` |
+| `the browser exited before the login completed` / `the browser closed the automation connection` | you closed the window, or a sandboxed browser could not use the profile directory. Try `--browser-exe firefox` (native package) or delete the default profile under `${XDG_CONFIG_HOME:-$HOME/.config}/openblizz/browser-profile` (snap/Flatpak profiles use their sandbox-accessible paths) |
 | `could not connect to the browser automation port` / `timed out waiting for the browser automation endpoint` / `the browser refused the WebSocket upgrade` | another instance of the same browser is running with remote debugging disabled by policy (common on managed machines), or a security tool blocks localhost sockets. Use a different browser family (`--browser-exe chromium`) |
 | snap Firefox: window never appears | snaps cannot read `~/.config`; OpenBlizz already uses `~/snap/firefox/common/openblizz-profile`. If it still fails, `snap connect firefox:system-observe` or install the Mozilla `.deb` |
 | flatpak browser exits at once | `flatpak override --user --filesystem=~/.var/app/<id> <id>` |
 | login succeeds but `the account.battle.net session cookies were rejected` | the account page completed on a regional host (`eu.account.battle.net`) before cookies for `account.battle.net` were set; run `openblizz login` again — the second pass is fast because "remember me" is still active |
-| headless servers (no display) | run `login` on a desktop machine and copy `~/.config/openblizz/battlenet-cookies.txt` (0600) to the server; every other command works without a display |
+| headless servers (no display) | run `login` on a desktop machine and copy the cookie jar from `${XDG_CONFIG_HOME:-$HOME/.config}/openblizz/battlenet-cookies.txt` (0600), or pass its destination with `--cookie-jar`; every other command works without a display |
 
 ## Library / ownership
 
 | Symptom | Cause / fix |
 |---|---|
 | `no valid Battle.net account session; run openblizz login first` / `library scan needs the Battle.net session saved by openblizz login` | no cookie jar, or the session expired and could not be renewed (password change, "log out everywhere", > 30 days idle). `openblizz login` again |
-| a game you own shows `not owned` | it is not attached to a game account and was not found in the purchase history (gifts, very old orders, other region). Run `library scan --dump /tmp/bnet.json` and open an issue with the `titleId`/`productTitle` (the dump contains no password, but does contain your account id and purchase history — redact before sharing). Meanwhile `library add <id>` lets you install |
+| a game you own shows `not owned` | it is not attached to a game account and was not found in the purchase history (gifts, very old orders, other region). Run `library scan --dump /tmp/bnet.json` and open an issue with the `titleId`/`productTitle` (the dump contains no password, but does contain your account id and purchase history — redact before sharing). `library add <id>` can override ownership metadata, but a valid session is still required by install/update/repair |
 | a game you own shows `unknown` | licence-only title with no purchase record in regions 1-3; same as above |
-| products appear under "Other Battle.net products" | the NGDP code was found on your account but is not in the curated catalog yet; it is still installable. Please report the code |
+| products appear under "Other Battle.net products" | the NGDP code was found on your account but is not in the curated catalog yet; it is currently listable/ownable, not necessarily installable. Please report the code so it can be evaluated and catalogued |
 | `Purchases not mapped to an installable product` lists a game | DLC, services and third-party titles (e.g. The Witcher 3 Remastered) have no real NGDP content; Call of Duty titles are on NGDP but TACT-encrypted with keys only the Battle.net client receives. None can be installed by OpenBlizz |
 | `plan`/`install` says `Call of Duty ...: ... TACT-encrypted ...` | expected: Call of Duty is catalogued for ownership and `versions`/`cdns` only. Play it through the official Battle.net client |
 | `N of M CASC objects could not be downloaded ... Run the same install command again` | some objects failed (CDN 404/5xx or network drop) after 3 range retries; everything else was stored and journaled. Re-run the identical `install` command: only the missing objects are fetched |
@@ -58,7 +60,7 @@ code 1. This page lists the common ones, grouped by phase.
 | Symptom | Cause / fix |
 |---|---|
 | `product is not in the public catalog` / `HTTP GET returned status 404 ... /versions` | unknown product code or a product with no public build (internal/PTR codes from `products --all`) |
-| `HTTP GET returned status 404 ... /data/xx/yy/<hash>` while downloading | the object is only inside a CDN archive and the archive index lookup failed; usually a stale cache. `rm -rf ~/.cache/openblizz` and re-run. If it persists on a fresh cache, report the product and hash |
+| `HTTP GET returned status 404 ... /data/xx/yy/<hash>` while downloading | an archive-range request or direct-object fallback failed, or archive metadata is missing/stale. Re-run first; delete `${XDG_CACHE_HOME:-$HOME/.cache}/openblizz` only if metadata appears corrupt. If it persists on a fresh cache, report the product and hash |
 | `all CDN hosts failed for <hash>` | network/ISP issue or an upstream CDN outage. Retry later or try `--region eu` (different host set); downloads resume |
 | `your Battle.net account does not own <id> (library state: not_owned)` | see the library section; `--force` installs anyway (public CDN content), but the game may still refuse to log in |
 | very slow download | increase `--jobs 8`; Blizzard CDNs are fast but per-connection throttled. Check `ulimit -n` if you see `Too many open files` |

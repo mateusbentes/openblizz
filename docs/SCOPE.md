@@ -126,12 +126,13 @@ OpenBlizz does **not** bundle:
 | Plain Wine | your distribution's `wine` / `wine-staging` | `--backend wine` |
 | x86-64 on ARM64 | Proton ARM64 + FEX | separate install, see [RUNTIME.md](RUNTIME.md#linux-aarch64-openblizz-versus-protonfex) |
 
-`openblizz launch` only sets `WINEPREFIX`, `PROTONPATH`, `GAMEID` and runs
-`umu-run` (or `wine`). Steam itself is not required; when you *do* want the
+`openblizz launch` sets `WINEPREFIX`, `PROTONPATH` and `GAMEID` for the
+Proton/umu backends, `WINEPREFIX` for Wine, and runs the executable directly
+for the native backend. Steam itself is not required; when you *do* want the
 game inside Steam (Steam Deck, Big Picture, controller layouts), add
 `openblizz` as a non-Steam game with the `launch ...` arguments as launch
 options and leave Steam's compatibility setting off, as described in
-[RUNTIME.md](RUNTIME.md#adding-a-game-to-steam-steam-deck--big-picture).
+[RUNTIME.md](RUNTIME.md#optional-adding-a-game-to-steam-steam-deck--big-picture).
 
 ## Reporting a wrong classification
 

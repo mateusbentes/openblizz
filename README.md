@@ -55,7 +55,7 @@ one-line export to add to your shell profile; it does not edit that file.
 # 1. Get the openblizz binary (prebuilt, no sudo; see above) ...
 curl -fsSL https://raw.githubusercontent.com/mateusbentes/openblizz/main/scripts/install-openblizz.sh | bash
 #    ... or build from source (Debian/Ubuntu shown; every distribution in docs/BUILDING.md)
-#    sudo apt install cmake g++ pkg-config libcurl4-openssl-dev libssl-dev zlib1g-dev liblz4-dev nlohmann-json3-dev
+#    sudo apt install git cmake g++ pkg-config libcurl4-openssl-dev libssl-dev zlib1g-dev liblz4-dev nlohmann-json3-dev
 #    git clone https://github.com/mateusbentes/openblizz.git && cd openblizz
 #    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$(nproc)"
 #    sudo cmake --install build      # optional: puts openblizz in /usr/local/bin
@@ -87,7 +87,7 @@ openblizz launch --directory ~/Games/Warcraft3/x86_64 --exe "Warcraft III.exe" \
 ```
 
 Later: `openblizz update w3 --directory ~/Games/Warcraft3` to patch,
-`verify`/`repair` to check the files, and [docs/RUNTIME.md](docs/RUNTIME.md#adding-a-game-to-steam-steam-deck--big-picture)
+`verify`/`repair` to check the files, and [docs/RUNTIME.md](docs/RUNTIME.md#optional-adding-a-game-to-steam-steam-deck--big-picture)
 to add the game to Steam as a non-Steam game. Without umu, `launch --backend wine`
 uses the system Wine instead.
 
@@ -118,38 +118,42 @@ for the distinction and the explicit `--proton` example.
 **Catalog and content.** Builds and CDN hosts come from Ribbit
 (`{region}.version.battle.net`); configs, encoding, install/download manifests,
 archive indexes and TVFS manifests from the public Blizzard CDNs. For
-Warcraft III: Reforged the install manifest only contains the executables; the
-game data lives in a local CASC storage, so `install` mounts the TVFS
+Warcraft III: Reforged the install manifest contains ordinary game files,
+including executables, DLLs and World Editor; the game data lives in a local
+CASC storage, so `install` mounts the TVFS
 (`vfs-root` → `war3.w3mod` → nested `vfs-N`), downloads every referenced
 object through CDN archives with HTTP Range requests and writes
-`Data/data/*.idx` + `data.NNN`, `Data/config`, `Data/indices` and
+`Data/data/*.idx` + `Data/data/data.NNN`, `Data/config`, `Data/indices` and
 `.build.info` — the same layout the official installer produces. Downloads
-resume, `verify --deep` re-hashes everything, `repair` re-downloads what is
-missing or damaged.
+resume, `verify --deep` re-hashes every stored CASC object, and `repair`
+re-downloads install files that fail their hash check plus CASC objects that
+are missing or have a size mismatch.
 
 **Login.** `openblizz login` opens an **isolated** profile of your default
 browser (Firefox family via WebDriver BiDi, Chromium family via DevTools;
 native, snap or flatpak) on the official login page. You enter password, MFA
 and captcha there; OpenBlizz only reads the resulting `battle.net` session
 cookies, verifies them against `account.battle.net/api/`, stores them with
-owner-only permissions and closes the window. Every later command reuses and
-renews that session; `logout` deletes it. The Battle.net app, its Agent and
-the OAuth developer API are not used.
+owner-only permissions and closes the window. Account-dependent commands such
+as `library scan`, `library list`, `install`, `update` and `repair` reuse and
+renew that session; metadata, verification, launch and local library-editing
+commands do not require it. `logout` deletes it. The Battle.net app, its Agent
+and the public/developer OAuth API are not used by OpenBlizz.
 
 **Ownership.** `library scan` (run automatically after login and every six
 hours) reads the same internal JSON the account page uses:
 `games-and-subs` (game accounts; `titleId` is the FourCC of the NGDP code),
-`classic-games` (CD keys) and `transactions` (purchase history, for
-licence-only titles such as Warcraft I/II Remastered or the Blizzard Arcade
-Collection). `install` refuses products marked `not owned` unless `--force`
+`classic-games` (CD keys) and `transactions` (purchase history, including
+purchase-history entitlements such as Warcraft I/II Remastered and the
+Blizzard Arcade Collection). `install` refuses products marked `not owned` unless `--force`
 is given. These endpoints are not a documented API and may change; OpenBlizz
 labels their output accordingly rather than pretending they are stable.
 
 **Output.** Lists are grouped by franchise (Warcraft, StarCraft, Diablo,
 Blizzard Arcade, Hearthstone, Heroes of the Storm, Overwatch, Other) in aligned
 tables. `products` shows the curated catalog, `products --all` every NGDP code,
-`products --shop` the full storefront (including Call of Duty and third-party
-titles, which are listed but cannot be installed — see
+`products --shop` the storefront entries exposed by the current navigation and
+family pages (including Call of Duty and third-party titles, which are listed but cannot be installed — see
 [docs/COMMANDS.md](docs/COMMANDS.md#openblizz-products)), `library list` what you own
 with the evidence for each entry.
 
@@ -159,12 +163,12 @@ with the evidence for each entry.
 |---|---|---|---|
 | `w3` | Warcraft III: Reforged | full (executables + CASC data) | reference product; `-launch` required |
 | `w3-legacy-tft` | Warcraft III legacy / TFT | executables | launch verified with GE-Proton10-10 + umu; no `-launch` required |
-| `w2r`, `w1r` | Warcraft II / I Remastered | yes | licence-only; ownership via purchase history |
+| `w2r`, `w1r` | Warcraft II / I Remastered | yes | ownership via purchase history; installable NGDP products |
 | `w2bn`, `war1` | Warcraft II BNE, Warcraft: Orcs & Humans | yes | classic CD keys |
 | `s1`, `s2` | StarCraft: Remastered, StarCraft II | yes | |
 | `anbs`, `osi`, `d3`, `fenris` | Diablo Immortal (PC build), II: Resurrected, III, IV | yes | `anbs`: Windows build only, not the phone game |
 | `wow`, `wow_classic`, `gryphon` | World of Warcraft, Classic, Warcraft Rumble (PC build) | yes | `gryphon`: Windows build only |
-| `rtro` | Blizzard Arcade Collection | yes | licence-only; purchase history |
+| `rtro` | Blizzard Arcade Collection | yes | ownership via purchase history; installable NGDP product |
 | `hsb`, `hero`, `pro` | Hearthstone (PC build), Heroes of the Storm, Overwatch | yes | |
 | `d2-classic`, `d2-lod` | Diablo II, Lord of Destruction | no (legacy installer) | ownership tracked only |
 

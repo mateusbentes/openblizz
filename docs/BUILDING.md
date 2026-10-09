@@ -11,8 +11,10 @@ system libraries and one header-only library:
 | LZ4 | BLTE `4` chunks | 1.9 |
 | nlohmann/json (header-only) | account JSON, library file, DevTools/BiDi messages | 3.9 |
 
-Toolchain: GCC 11+ or Clang 14+, CMake 3.20+, `pkg-config`/`pkgconf`. The
-build has no network access requirements (no FetchContent, no submodules).
+Recommended toolchain: GCC 11+ or Clang 14+, CMake 3.20+,
+`pkg-config`/`pkgconf`. GCC 10 may also build this source on distributions that
+provide sufficient C++20 support; Debian 11 additionally needs a newer CMake.
+The build has no network access requirements (no FetchContent, no submodules).
 
 Everything below assumes you cloned the repository:
 
@@ -118,7 +120,8 @@ it. Two supported routes:
 1. **Build inside a container** (recommended, survives SteamOS updates):
    ```bash
    # Desktop mode, Konsole
-   sudo pacman -S distrobox   # or install Distrobox from Discover (Flatpak)
+   # Install Distrobox from Discover (Flatpak), or use an existing Distrobox.
+   # Do not assume host pacman works while the SteamOS root is read-only.
    distrobox create --name ob --image archlinux:latest
    distrobox enter ob
    sudo pacman -Syu --needed git cmake gcc pkgconf curl openssl zlib lz4 nlohmann-json
@@ -130,9 +133,9 @@ it. Two supported routes:
    The game directory, Proton prefix and `~/.config/openblizz` live in your
    home directory and are shared with the host, so `launch` and adding the game
    to Steam work normally.
-2. **Copy a binary built on Arch Linux**: SteamOS is Arch-based and ships
-   libcurl, OpenSSL 3, zlib and lz4 in `/usr/lib`, so a binary built on an
-   up-to-date Arch machine runs unchanged.
+2. **Copy a binary built on Arch Linux**: SteamOS is Arch-based, but this is
+   an ABI-dependent convenience rather than a guarantee. Prefer the container
+   build or test the copied binary on the target SteamOS image.
 
 ### openSUSE Tumbleweed / Leap 15.5+
 
@@ -240,17 +243,22 @@ is Linux-only.
 
 ## Windows (experimental)
 
-Use MSYS2 (UCRT64):
+Use MSYS2 (UCRT64) for an experimental **build-only** attempt:
 
 ```bash
-pacman -S --needed mingw-w64-ucrt-x86_64-{gcc,cmake,pkgconf,curl,openssl,zlib,lz4,nlohmann-json}
+pacman -S --needed mingw-w64-ucrt-x86_64-{gcc,cmake,ninja,pkgconf,curl,openssl,zlib,lz4,nlohmann-json}
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-Browser login relies on POSIX process control and `chmod`; on Windows use
-`library add` or run the login step on Linux and copy
-`battlenet-cookies.txt`. `launch --backend native` runs the game directly.
+The current browser-login and runner implementations are POSIX-oriented, so
+this is not a supported end-to-end Windows path. `library add` changes only
+local metadata; it is not a replacement for the valid account session required
+by `install`, `update` and `repair`. Use the Linux browser-login flow for the
+supported path. Do not copy a live cookie jar casually; if you move one to
+another machine, preserve its `0600` permissions and protect it like a
+credential. `launch --backend native` is only a direct process hand-off and
+does not make a Windows build generally supported.
 
 ## Verifying the build
 
@@ -258,7 +266,7 @@ Browser login relies on POSIX process control and `chmod`; on Windows use
 ctest --test-dir build --output-on-failure      # parsers, hashes, TVFS, CASC, shop/account JSON
 ./build/openblizz products                      # offline: curated catalog
 ./build/openblizz versions w3                   # network: Ribbit
-./build/openblizz plan w3 --no-data             # network: CDN config + manifests, nothing written
+./build/openblizz plan w3 --no-data             # network: manifests; no game-directory data written (cache may warm)
 ```
 
 ## Development build
@@ -269,8 +277,9 @@ cmake --build build-debug -j"$(nproc)"
 ./build-debug/openblizz_tests
 ```
 
-Warnings are enabled (`-Wall -Wextra -Wpedantic`) and the tree must build
-without any. Address/UB sanitizers:
+Warnings are enabled (`-Wall -Wextra -Wpedantic`) for `openblizz_core`; the
+CLI and test targets do not currently have those flags applied directly.
+Address/UB sanitizers:
 
 ```bash
 cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug \
@@ -284,5 +293,8 @@ cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug \
 - Optional runtime tools (not linked): a Firefox- or Chromium-family browser
   for `login`; `umu-run` or `wine` for `launch`; `xdg-settings` to detect the
   default browser.
-- The binary writes only to the XDG directories listed in
-  [FILES.md](FILES.md) and to the game directory you pass with `--directory`.
+- By default, the binary writes to the XDG locations listed in
+  [FILES.md](FILES.md), to the game directory passed with `--directory`, and
+  to `./.openblizz-prefix` when `launch` is used without `--prefix`. Explicit
+  `--cookie-jar`, `--library-file`, `--dump`, `--profile-dir` and `--prefix`
+  options may direct output elsewhere.
