@@ -158,7 +158,7 @@ with the evidence for each entry.
 | Id | Game | Install | Notes |
 |---|---|---|---|
 | `w3` | Warcraft III: Reforged | full (executables + CASC data) | reference product; `-launch` required |
-| `w3-legacy-tft` | Warcraft III legacy / TFT | executables | same game account as `w3` |
+| `w3-legacy-tft` | Warcraft III legacy / TFT | executables | launch verified with GE-Proton10-10 + umu; no `-launch` required |
 | `w2r`, `w1r` | Warcraft II / I Remastered | yes | licence-only; ownership via purchase history |
 | `w2bn`, `war1` | Warcraft II BNE, Warcraft: Orcs & Humans | yes | classic CD keys |
 | `s1`, `s2` | StarCraft: Remastered, StarCraft II | yes | |
@@ -170,9 +170,12 @@ with the evidence for each entry.
 
 "Install" means OpenBlizz can download the build through NGDP; whether a
 title runs well under Proton depends on the game (anti-cheat, launcher
-requirements). Warcraft III: Reforged is tested end to end. Mobile-origin
-games (Diablo Immortal, Warcraft Rumble, Hearthstone) are installed as their
-Windows builds; phone builds are not on NGDP. The full category-by-category
+requirements). The verified launch path is currently Warcraft III: Legacy/TFT
+with GE-Proton10-10 and umu. Warcraft III: Reforged installation is tested,
+but its in-game launch remains sensitive to hardware, GPU drivers, display
+server and Proton version. Mobile-origin games (Diablo Immortal, Warcraft
+Rumble, Hearthstone) are installed as their Windows builds; phone builds are
+not on NGDP. The full category-by-category
 breakdown, including Call of Duty and third-party shop titles, is in
 [docs/SCOPE.md](docs/SCOPE.md).
 

@@ -115,13 +115,41 @@ openblizz launch --directory ~/Games/Warcraft3/x86_64 --exe "Warcraft III.exe" \
   Battle.net app and exits.
 - First launch takes longer (GE-Proton download, Steam Runtime 4 setup,
   prefix creation and shader cache). Login inside the game uses Blizzard's own
-  in-game login; online play works as with the official installation.
-- Verified on Ubuntu 26.04/KDE Wayland with umu-launcher 1.4.4,
-  GE-Proton 11-7 and Steam Runtime 4: umu reported `Running 'GE-Proton11-7-x86_64'`
-  and the process reached `fsync: up and running`.
+  in-game login.
+- The installation path and Proton hand-off have been exercised on Ubuntu
+  26.04/KDE Wayland with umu-launcher 1.4.4, GE-Proton 11-7 and Steam Runtime
+  4: umu reported `Running 'GE-Proton11-7-x86_64'` and the process reached
+  `fsync: up and running`. This does not guarantee that the Reforged game
+  window or embedded browser will perform well on every GPU or machine.
 - `--locale ptBR` stores the Brazilian Portuguese assets in addition to the
   mandatory enUS set; switch the language in the game's options.
 - Saved games and settings: `<prefix>/drive_c/users/<user>/Documents/Warcraft III/`.
+
+## Warcraft III: Legacy / TFT
+
+The legacy client uses the ordinary Windows executable and does not need the
+Reforged `-launch` hand-off:
+
+```bash
+openblizz launch \
+  --backend umu \
+  --proton "$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton10-10" \
+  --directory "$HOME/Games/Warcraft3-legacy" \
+  --exe "Warcraft III.exe" \
+  --prefix "$HOME/Games/openblizz/warcraft3-legacy-ge10"
+```
+
+This path was verified with Warcraft III Legacy/TFT `1.29.2.9232-legacy-tft`,
+umu-launcher 1.4.4 and GE-Proton10-10. On first use, umu may report that
+`steamrt3` is missing and then download and verify the Sniper Steam Runtime;
+that is normal first-run setup. A fresh prefix is recommended when changing
+from another Proton build.
+
+The test also emitted many GStreamer `wrong ELF class` warnings from the
+Proton environment, but the game still launched. Treat those warnings as
+non-fatal when the game opens; if the process exits without a window, try the
+same command with a fresh prefix and GE-Proton10-10 before changing the game
+files.
 
 ## Other products
 

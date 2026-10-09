@@ -74,11 +74,14 @@ code 1. This page lists the common ones, grouped by phase.
 | `pyzstd module: Can't import compiled .so/.pyd file` | the `ubuntu-noble` umu package was installed on Ubuntu 26.04; replace it with the matching `ubuntu-resolute` architecture-specific `.deb` |
 | `umu has not been setup for the user` / `Could not find steamrt4_platform_*` | the first umu launch was interrupted before Steam Runtime 4 finished. Run the same launch again; umu resumes `.parts` downloads and stores the runtime in `~/.local/share/umu/` |
 | `apparmor.service` fails after installing umu | identify the failing profile with `systemctl status apparmor` and `journalctl -xeu apparmor`; retain Ubuntu's `bwrap-userns-restrict` profile and fix/disable only the offending umu profile. The umu executable can still be tested with `umu-run --version` |
-| `fsync: up and running` appears after the Proton command | this indicates that Proton reached the game process; if no window appears, continue with the black-screen/Vulkan and game-specific diagnostics below |
+| `fsync: up and running` appears after the Proton command | this indicates that Proton reached the game process; it does not by itself prove that the game window or embedded browser rendered correctly. If no window appears, continue with the black-screen/Vulkan and game-specific diagnostics below |
+| Warcraft III Legacy/TFT exits immediately with one Proton build | use a fresh prefix and try the verified route with GE-Proton10-10: see [RUNTIME.md](RUNTIME.md#warcraft-iii-legacy--tft). Legacy/TFT does not need `-launch` |
+| `steamrt3 validation failed` or `Could not find sniper_platform_*` on the first Classic launch | umu has not finished setting up its Sniper Steam Runtime. Run the same command again and allow umu to download and verify `steamrt3` under `~/.local/share/umu/` |
+| many GStreamer warnings ending in `wrong ELF class` appear while Classic starts | these warnings can be non-fatal from the Proton runtime; if the game opens, no action is required. If it exits, retry with a fresh prefix and GE-Proton10-10 before changing game files |
 | ARM64 OpenBlizz installs correctly but the Windows game does not start | the AArch64 CLI and the game runtime are separate; install an ARM64-capable Proton+FEX/umu stack, configure its x86-64 rootfs, and pass that Proton directory with `--proton`. The default x86_64 GE-Proton download is not automatically an ARM64 runtime |
 | `game executable does not exist` | pass the directory that contains the `.exe` (for W3: `--directory DIR/x86_64`) or an absolute `--exe` path |
 | first launch "hangs" for minutes | umu is downloading GE-Proton and the Steam Runtime (~1 GB); run `UMU_LOG=1 openblizz launch ...` to watch progress |
-| Warcraft III opens then exits immediately | missing `-launch` after `--` |
+| Warcraft III Reforged opens then exits immediately | add `-launch` after `--`; for the separate Legacy/TFT client, do not add `-launch` and see the GE-Proton10-10 route above |
 | black screen / no Vulkan device | update Mesa/NVIDIA drivers; try `PROTON_USE_WINED3D=1` as a fallback |
 | game asks to log in every time | the prefix changed; always pass the same `--prefix` |
 | Steam shortcut does nothing | make sure *Compatibility* is unchecked and the *Target* points to `openblizz`, *Launch options* begin with `launch`. Test the same line in a terminal first |
