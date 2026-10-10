@@ -349,22 +349,6 @@ InstallPlan Installer::plan(const std::string& product, const std::string& regio
     }
     result.locale = locale;
 
-    const auto archive_hashes = result.cdn_config.get("archives");
-    if (!archive_hashes.empty()) {
-        std::cout << "Loading " << archive_hashes.size() << " archive indexes.\n";
-        std::mutex merge_mutex;
-        run_parallel(8, archive_hashes.size(), [&](std::size_t i) {
-            const auto index = ArchiveIndex::parse(archive_index_bytes(result.cdn, archive_hashes[i]));
-            std::lock_guard lock(merge_mutex);
-            for (const auto& [encoding_key, location] : index.entries()) {
-                auto archive_location = location;
-                archive_location.archive_key = archive_hashes[i];
-                result.archive_entries.try_emplace(encoding_key, std::move(archive_location));
-            }
-        });
-        std::cout << "Archive index entries: " << result.archive_entries.size() << "\n";
-    }
-
     const auto install_pair = result.build_config.pair("install");
     if (!install_pair || install_pair->encoding_key.empty()) {
         throw std::runtime_error("product " + product + " has no install manifest in the current build");
@@ -386,11 +370,28 @@ InstallPlan Installer::plan(const std::string& product, const std::string& regio
     result.selected_entries = select_entries(result.install_manifest, locale);
     for (const auto& entry : result.selected_entries) result.total_bytes += entry.file_size;
 
+    const auto archive_hashes = result.cdn_config.get("archives");
+    if (!archive_hashes.empty()) {
+        std::cout << "Loading " << archive_hashes.size() << " archive indexes.\n";
+        std::mutex merge_mutex;
+        run_parallel(8, archive_hashes.size(), [&](std::size_t i) {
+            const auto index = ArchiveIndex::parse(archive_index_bytes(result.cdn, archive_hashes[i]));
+            std::lock_guard lock(merge_mutex);
+            for (const auto& [encoding_key, location] : index.entries()) {
+                auto archive_location = location;
+                archive_location.archive_key = archive_hashes[i];
+                result.archive_entries.try_emplace(encoding_key, std::move(archive_location));
+            }
+        });
+        std::cout << "Archive index entries: " << result.archive_entries.size() << "\n";
+    }
+
     if (result.build_config.contains("vfs-root") && !options.skip_data) {
         result.casc = true;
         std::cout << "Mounting TVFS manifests.\n";
         BuildContext ctx;
         ctx.cdn = result.cdn;
+        ctx.keyring = result.keyring;
         ctx.build_config = result.build_config;
         result.vfs_files = vfs_files(ctx);
         select_data_objects(result, encoding, options);

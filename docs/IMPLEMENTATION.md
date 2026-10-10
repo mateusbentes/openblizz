@@ -59,10 +59,12 @@ before a download is declared failed.
 ## Content layer
 
 `Installer::plan` resolves build config → CDN config → optional KeyRing → encoding → install
-manifest → archive indexes (cached under `$XDG_CACHE_HOME/openblizz`) and, when
+manifest → selected files → archive indexes (cached under `$XDG_CACHE_HOME/openblizz`) and, when
 the build has a TVFS root, the whole virtual file system filtered to `enUS`
 plus the requested locale. The download-manifest parser exists, but the
 current planning path does not use a download manifest.
+An empty install manifest is rejected before archive indexes are fetched, so
+metadata-only products do not perform unnecessary CASC I/O.
 
 `Installer::install` writes install-manifest files atomically (`.part` then
 rename) after MD5 verification, and streams every TVFS object into

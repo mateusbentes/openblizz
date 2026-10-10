@@ -102,7 +102,10 @@ writing to a game directory**: downloads build/CDN config, encoding and
 install manifests, archive indexes (cached under the XDG cache) and, for TVFS
 products, the virtual file system; then prints the summary (version, build
 config, selected files, selected bytes, encoding mappings). Use it to see the
-download size before committing disk space.
+download size before committing disk space. If the current build has an empty
+install manifest (for example the public `lyra` metadata-only build), `plan`
+stops before loading archive indexes and reports that the CDN build is
+metadata-only.
 
 ### `openblizz vfs manifests <product> [--region us]`
 
