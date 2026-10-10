@@ -37,7 +37,7 @@ grouped by phase.
 | snap Firefox: window never appears | snaps cannot read `~/.config`; OpenBlizz already uses `~/snap/firefox/common/openblizz-profile`. If it still fails, `snap connect firefox:system-observe` or install the Mozilla `.deb` |
 | flatpak browser exits at once | `flatpak override --user --filesystem=~/.var/app/<id> <id>` |
 | login succeeds but `the account.battle.net session cookies were rejected` | the account page completed on a regional host (`eu.account.battle.net`) before cookies for `account.battle.net` were set; run `openblizz login` again — the second pass is fast because "remember me" is still active |
-| headless servers (no display) | run `login` on a desktop machine and copy the cookie jar from `${XDG_CONFIG_HOME:-$HOME/.config}/openblizz/battlenet-cookies.txt` (0600), or pass its destination with `--cookie-jar`; every other command works without a display |
+| headless servers (no display) | `openblizz login` requires a graphical browser window for the official login flow. Use a desktop session, remote desktop, or a machine with a display; OpenBlizz does not provide a manual cookie-import authentication flow |
 
 ## Library / ownership
 

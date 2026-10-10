@@ -157,7 +157,8 @@ change; OpenBlizz labels their output accordingly rather than pretending they
 are stable.
 
 **Output.** Lists are grouped by franchise (Warcraft, StarCraft, Diablo,
-Blizzard Arcade, Hearthstone, Heroes of the Storm, Overwatch, Other) in aligned
+Blizzard Arcade, Hearthstone, Heroes of the Storm, Overwatch, Third-party
+Battle.net titles, Other Battle.net products) in aligned
 tables. `products` shows the curated catalog, `products --all` every NGDP code,
 `products --shop` the storefront entries exposed by the current navigation and
 family pages (including Call of Duty and third-party titles, whose installability depends on the current NGDP build — see
@@ -169,7 +170,7 @@ with the evidence for each entry.
 | Id | Game | Install | Notes |
 |---|---|---|---|
 | `w3` | Warcraft III: Reforged | full (executables + CASC data) | reference product; `-launch` required |
-| `w3-legacy-tft` | Warcraft III legacy / TFT | executables | launch verified with GE-Proton10-10 + umu; no `-launch` required |
+| `w3-legacy-tft` | Warcraft III legacy / TFT | full files + CASC data | launch verified with GE-Proton10-10 + umu; no `-launch` required |
 | `w2r`, `w1r` | Warcraft II / I Remastered | yes | ownership via purchase history; installable NGDP products |
 | `w2bn`, `war1` | Warcraft II BNE, Warcraft: Orcs & Humans | yes | classic CD keys |
 | `s1`, `s2` | StarCraft: Remastered, StarCraft II | yes | |
