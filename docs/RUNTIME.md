@@ -7,7 +7,7 @@ Blizzard games). `openblizz launch` runs them through one of four backends:
 |---|---|---|
 | `proton` (default) / `umu` | `WINEPREFIX=… PROTONPATH=… GAMEID=umu-openblizz umu-run GAME.exe …` | recommended: Proton (GE) with the Steam Runtime container, no Steam client needed |
 | `wine` | `WINEPREFIX=… wine GAME.exe …` | system Wine (wine-staging recommended) |
-| `native` | `GAME.exe …` | the executable runs by itself (macOS/Windows builds of OpenBlizz, or tests) |
+| `native` | `GAME.exe …` | direct process hand-off for Linux execution and tests; it does not make Windows/macOS builds supported |
 
 ## Installing umu-launcher
 

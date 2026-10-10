@@ -60,13 +60,61 @@ std::vector<std::string> split_hosts(const std::string& value) {
 }
 
 const char* const kCodReason =
-    "Call of Duty content uses TACT-encrypted builds and the public KeyRing is not sufficient to validate "
-    "the complete game; the game also needs the Battle.net client and its anti-cheat at runtime. "
-    "OpenBlizz keeps these products metadata-only and does not install or launch them.";
+    "Call of Duty remains metadata-only: its complete content/key/authentication/runtime combination "
+    "has not been validated. Public KeyRing support does not establish a working installation "
+    "or anti-cheat compatibility; this change does not enable its downloader.";
 
 } // namespace
 
-Catalog::Catalog(HttpClient& http) : http_(http) {}
+Catalog::Catalog(HttpClient& http, std::vector<LibraryEntry> library,
+                 std::string version_base, Transport transport)
+    : http_(http), library_(std::move(library)), version_base_(std::move(version_base)),
+      transport_(std::move(transport)) {}
+
+bool Catalog::valid_product_code(const std::string& code) {
+    return !code.empty() && code.size() <= 64 &&
+           std::all_of(code.begin(), code.end(), [](unsigned char c) {
+               return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
+           });
+}
+
+ProductDescriptor Catalog::resolve_product(const std::string& id) const {
+    const auto curated = products();
+    const auto known = std::find_if(curated.begin(), curated.end(), [&](const auto& p) { return p.id == id; });
+    if (known != curated.end()) {
+        auto product = find_product(curated, id);
+        // agent_product historically also names account/launcher aliases (w3
+        // for Legacy/TFT). NGDP uses the curated id, including w3-legacy-tft.
+        product.agent_product = product.id;
+        return product;
+    }
+    const auto entry = std::find_if(library_.begin(), library_.end(), [&](const auto& e) { return e.product_id == id; });
+    if (entry == library_.end()) throw std::runtime_error("unsupported catalog product: " + id);
+    if (entry->ownership != OwnershipState::Owned ||
+        (entry->source != "account-purchases" && entry->source != "account-web")) {
+        throw std::runtime_error("dynamic product " + id + " needs account-derived ownership; run `openblizz library scan`");
+    }
+    const auto& code = entry->ngdp_product;
+    if (code.empty()) {
+        throw std::runtime_error("dynamic product " + id + " has no explicit NGDP appGameCode; ownership-only. "
+                                 "Run `openblizz library scan` to refresh its metadata");
+    }
+    if (!valid_product_code(code)) throw std::runtime_error("invalid NGDP product code for " + id + ": " + code);
+    const auto target = std::find_if(curated.begin(), curated.end(), [&](const auto& p) { return p.id == code; });
+    if (target != curated.end()) (void)find_product(curated, code);  // do not bypass a curated block through an alias
+    return {id, entry->name.empty() ? id : entry->name,
+            entry->family.empty() ? "ngdp" : entry->family, code, true};
+}
+
+HttpResponse Catalog::request(const std::string& url, std::uint64_t offset, std::uint32_t size) const {
+    if (transport_) return transport_(url, offset, size);
+    return size == 0 ? http_.get(url) : http_.get_range(url, offset, size);
+}
+
+std::string Catalog::metadata_base(const std::string& region) const {
+    if (!valid_product_code(region)) throw std::runtime_error("invalid NGDP region: " + region);
+    return version_base_.empty() ? "https://" + region + ".version.battle.net" : version_base_;
+}
 
 std::vector<ProductDescriptor> Catalog::products() const {
     return {
@@ -92,16 +140,18 @@ std::vector<ProductDescriptor> Catalog::products() const {
         {"hsb", "Hearthstone (PC build)", "hearthstone", "hsb", true},
         {"hero", "Heroes of the Storm", "heroes", "hero", true},
         {"lyra", "The Witcher 3: Wild Hunt Remastered", "thirdparty", "lyra", true},
+        // Public product config identifies wlby as CrashBandicoot4.exe with
+        // containerless NGDP, not Call of Duty. Download support is experimental;
+        // its online/runtime requirements are not bypassed by this installer.
+        {"wlby", "Crash Bandicoot 4: It's About Time", "thirdparty", "wlby", true},
         // Classic CD-key titles still listed by the account page. They are not
         // distributed through NGDP, so they are catalogued for ownership only.
         {"d2-classic", "Diablo II (classic, legacy installer)", "diablo", "", false},
         {"d2-lod", "Diablo II: Lord of Destruction (classic, legacy installer)", "diablo", "", false},
-        // Call of Duty titles are published through the same Ribbit/NGDP
-        // endpoints (versions, cdns and build configs are public), but their
-        // `versions` rows carry a KeyRing: the game content is TACT-encrypted
-        // with keys that only the Battle.net client receives after an
-        // entitlement check, and the games require that client plus the
-        // Ricochet anti-cheat at runtime. They are catalogued for ownership
+        // Call of Duty titles expose public Ribbit/NGDP metadata, but the
+        // full content/key/runtime combination has not been validated.
+        // Public KeyRing decoding alone does not establish installation or
+        // anti-cheat compatibility. They are catalogued for ownership
         // and metadata (`versions`, `cdns`) only.
         {"odin", "Call of Duty: Modern Warfare (2019) / Warzone", "callofduty", "odin", false, kCodReason},
         {"zeus", "Call of Duty: Black Ops Cold War", "callofduty", "zeus", false, kCodReason},
@@ -109,13 +159,12 @@ std::vector<ProductDescriptor> Catalog::products() const {
         {"lazr", "Call of Duty: Modern Warfare II (2022)", "callofduty", "lazr", false, kCodReason},
         {"nina", "Call of Duty (NGDP code nina)", "callofduty", "nina", false, kCodReason},
         {"auks", "Call of Duty (NGDP code auks)", "callofduty", "auks", false, kCodReason},
-        {"wlby", "Call of Duty (NGDP code wlby)", "callofduty", "wlby", false, kCodReason},
     };
 }
 
 std::vector<Catalog::SummaryEntry> Catalog::summary(const std::string& region) const {
-    const auto url = "https://" + region + ".version.battle.net/v2/summary";
-    const auto response = http_.get(url);
+    const auto url = metadata_base(region) + "/v2/summary";
+    const auto response = request(url);
     std::vector<std::string> header;
     const auto rows = parse_bpsv(body_text(response), &header);
     const auto product_index = field_index(header, "Product");
@@ -143,8 +192,10 @@ std::vector<ProductDescriptor> Catalog::all_products(const std::string& region) 
 }
 
 VersionInfo Catalog::version(const std::string& product, const std::string& region) const {
-    const auto url = "https://" + region + ".version.battle.net/v2/products/" + product + "/versions";
-    const auto response = http_.get(url);
+    const auto code = product.rfind("thirdparty-", 0) == 0 ? resolve_product(product).agent_product : product;
+    if (!valid_product_code(code)) throw std::runtime_error("invalid NGDP product code: " + code);
+    const auto url = metadata_base(region) + "/v2/products/" + code + "/versions";
+    const auto response = request(url);
     std::vector<std::string> header;
     const auto rows = parse_bpsv(body_text(response), &header);
     const auto region_index = field_index(header, "Region");
@@ -157,7 +208,7 @@ VersionInfo Catalog::version(const std::string& product, const std::string& regi
     for (const auto& row : rows) {
         if (region_index < row.size() && row[region_index] != region) continue;
         VersionInfo result;
-        result.product = product;
+        result.product = code;
         result.region = region;
         result.build_config = cell(row, build_index);
         result.cdn_config = cell(row, cdn_index);
@@ -174,8 +225,10 @@ VersionInfo Catalog::version(const std::string& product, const std::string& regi
 }
 
 std::vector<CdnInfo> Catalog::cdns(const std::string& product, const std::string& region) const {
-    const auto url = "https://" + region + ".version.battle.net/v2/products/" + product + "/cdns";
-    const auto response = http_.get(url);
+    const auto code = product.rfind("thirdparty-", 0) == 0 ? resolve_product(product).agent_product : product;
+    if (!valid_product_code(code)) throw std::runtime_error("invalid NGDP product code: " + code);
+    const auto url = metadata_base(region) + "/v2/products/" + code + "/cdns";
+    const auto response = request(url);
     std::vector<std::string> header;
     const auto rows = parse_bpsv(body_text(response), &header);
     const auto region_index = field_index(header, "Name");
@@ -185,15 +238,15 @@ std::vector<CdnInfo> Catalog::cdns(const std::string& product, const std::string
     const auto config_index = field_index(header, "ConfigPath");
     std::vector<CdnInfo> result;
     for (const auto& row : rows) {
+        if (region_index < row.size() && row[region_index] != region) continue;
         CdnInfo cdn;
-        cdn.product = product;
+        cdn.product = code;
         cdn.region = region;
         cdn.path = cell(row, path_index);
         cdn.hosts = split_hosts(cell(row, hosts_index));
         cdn.servers = split_hosts(cell(row, servers_index));
         cdn.config_path = cell(row, config_index);
         if (!cdn.path.empty() && !cdn.hosts.empty()) result.push_back(std::move(cdn));
-        (void)region_index;
     }
     if (result.empty()) throw std::runtime_error("NGDP returned no usable CDN for " + product);
     return result;
@@ -218,7 +271,7 @@ HttpResponse Catalog::get_with_cdn_failover(const CdnInfo& cdn, const std::strin
         CdnInfo candidate = cdn;
         candidate.hosts = {host};
         try {
-            return http_.get(object_url(candidate, kind, hash, suffix));
+            return request(object_url(candidate, kind, hash, suffix));
         } catch (const std::exception& error) {
             last_error = error.what();
         }
@@ -263,7 +316,7 @@ std::vector<std::uint8_t> Catalog::fetch_archive_range(const CdnInfo& cdn,
         CdnInfo candidate = cdn;
         candidate.hosts = {host};
         try {
-            return http_.get_range(object_url(candidate, "data", hash), offset, size).body;
+            return request(object_url(candidate, "data", hash), offset, size).body;
         } catch (const std::exception& error) {
             last_error = error.what();
         }

@@ -25,8 +25,9 @@ include/openblizz/    public headers (+ table.hpp: aligned grouped tables, franc
 `Catalog` reads Ribbit V2 through its HTTPS mirror
 (`{region}.version.battle.net/v2/...`): `summary` for every product code,
 `products/<p>/versions` and `/cdns` for the current build. Config objects are
-checked against their MD5 identifiers. Decoded install objects are checked
-against their install-manifest content keys when consumed; archive indexes are
+checked against their MD5 identifiers. Decoded install/encoding manifests are
+checked against their build-config content keys before parsing; decoded game
+files are checked against install-manifest content keys. Archive indexes are
 structurally parsed, while not every raw CDN object is globally hash-validated
 before use.
 
@@ -58,13 +59,35 @@ before a download is declared failed.
 
 ## Content layer
 
-`Installer::plan` resolves build config → CDN config → optional KeyRing → encoding → install
-manifest → selected files → archive indexes (cached under `$XDG_CACHE_HOME/openblizz`) and, when
+`Installer::plan` resolves a product descriptor → optional KeyRing → build/CDN
+configs → install manifest → encoding manifest → selected files → archive
+indexes (cached under `$XDG_CACHE_HOME/openblizz`) and, when
 the build has a TVFS root, the whole virtual file system filtered to `enUS`
 plus the requested locale. The download-manifest parser exists, but the
 current planning path does not use a download manifest.
-An empty install manifest is rejected before archive indexes are fetched, so
-metadata-only products do not perform unnecessary CASC I/O.
+IN/EN manifests are requested as loose CDN objects first. If transport fails
+on the announced hosts, the exact EKey is resolved from archive indexes and
+fetched by Range; indexes are loaded once per plan. Decoding and CKey
+validation still apply. A successfully fetched empty install manifest is
+rejected before EN or archive indexes are fetched, so the inspected
+metadata-only `lyra` build does not perform unnecessary CASC I/O.
+
+`Catalog::resolve_product` retains the local library id but resolves its
+explicit NGDP code. Curated ids use their own NGDP endpoint (including
+`w3-legacy-tft`, not its account alias `w3`); recognized account-owned dynamic
+entries use `ngdp_product`. Codes are validated and curated blocks survive
+dynamic aliases. Slug-only entries are not download targets. `Catalog::Transport`
+and an optional metadata base are dependency injection for offline library
+tests, not user-configurable CLI endpoints.
+
+Generic account products are matched against Ribbit summary descriptors during
+scan and their codes are persisted explicitly as well. No missing code is
+inferred from a local id. The CASC `.build.info` Product field uses the resolved
+NGDP code (`plan.version.product`), while library/output retains the stable id.
+
+Selected file paths are normalized before downloads. Identical duplicates
+are processed once; differing contents assigned to the same case-insensitive
+Windows output path are rejected before parallel writes, as are empty selections.
 
 `Installer::install` writes install-manifest files atomically (`.part` then
 rename) after MD5 verification, and streams every TVFS object into
@@ -73,8 +96,10 @@ rename) after MD5 verification, and streams every TVFS object into
 checksum A, checksum B), 16 bucketed version-7 `.idx` journals,
 `Data/config/xx/yy/<hash>`, `Data/indices/<hash>.index` and `.build.info`.
 Storage reopens and resumes, so interrupted installs continue; `verify`
-checks manifest files by hash and CASC objects by presence/size (`--deep`
-re-hashes them). `repair` runs the non-deep verification pass, removes journal
+hashes selected install-manifest files, checks `.build.info` and `Data/config`
+for presence, and checks planned CASC objects by presence/size (`--deep`
+re-hashes only the plan's `data_objects`). `repair` runs the non-deep
+verification pass, removes journal
 entries for CASC objects reported with size failures, and downloads the
 selected missing or broken data again.
 
@@ -101,29 +126,34 @@ endpoints:
 |---|---|---|
 | `/api/games-and-subs` | `account-web` | `titleId` is the big-endian FourCC of the NGDP product code (`22323` → `W3`, `21297` → `S1`, `1095647827` → `ANBS`); decoded codes are matched against the Ribbit summary, so unknown products are still recognised and listed under "Other Battle.net products" |
 | `/api/classic-games` | `account-web` | CD-key titles by name (Diablo II, Warcraft II BNE, ...) |
-| `/api/transactions?regionId=1`, `2`, and `3` | `account-purchases` | `productTitle` → product(s); bundles expand (e.g. "Warcraft Remastered Battle Chest" → `w1r`, `w2r`); refunded/charged-back orders are skipped |
+| `/api/transactions?regionId=1`, `2`, and `3` | `account-purchases` | `productTitle` → product(s); bundles expand (e.g. "Warcraft Remastered Battle Chest" → `w1r`, `w2r`); textual statuses are revoked only for values containing `refund`, `chargeback`, `cancel`, or `revers`; numeric status values remain `unknown`; those revoked orders are skipped |
 
 The merged result is written to `library.json` (0600) and refreshed
 automatically when older than six hours. `install`/`update`/`repair` consult
-it: `not owned` blocks (unless `--force`), `unknown` warns. Custom
+it: the curated Blizzard path blocks `not owned` (unless `--force`) and warns
+on `unknown`; third-party downloads require account-detected `owned`, without
+manual/unknown/force overrides. Custom
 `--cookie-jar` and `--library-file` paths are supported by the relevant CLI
-commands; account auto-refresh currently uses the default cookie jar.
+commands; auto-refresh uses the supplied jar when present. The CLI reloads
+library metadata after refresh before resolving a dynamic download target.
 
 `products --shop` parses the storefront navigation menu (`/family/...` and
-`/product/...` cards) and family pages so the storefront entries exposed by
+`/product/...` cards) and family pages so the public-card entries exposed by
 those pages, including third-party titles, are visible and cross-referenced
-with the library. The result depends on what the storefront publishes to the
-current page payload. The known third-party product `lyra` is mapped from its
-purchase title, but its current public build has an empty install manifest and
-is rejected as metadata-only rather than reported as a successful install.
+with the library. It does not create ownership records; dynamic records are
+generated by `library scan` only for `unmatched_titles`, as described below.
+The known third-party product `lyra` is mapped from its purchase title, but its
+current public build has an empty install manifest and is rejected as
+metadata-only rather than reported as a successful install.
 
-When a transaction does not match the curated catalog, `library scan` performs
-the same public storefront lookup on demand. A matching product card produces
-an ownership-only dynamic entry with a stable `thirdparty-*` id derived from
-`appGameCode` or the product slug, while the name and storefront path are
-retained as public evidence. A dynamic entry is never treated as an NGDP
-install target automatically; it must still have a real, supported product
-descriptor and non-empty manifest before installation is possible.
+When `unmatched_titles` contains a transaction not matched by the curated
+catalog, `library scan` performs that public-card lookup on demand. A matching
+product card produces
+a dynamic entry with a stable `thirdparty-*` id derived from `appGameCode` or
+the product slug. Explicit `ngdp_product` and `shop_slug` fields retain the code
+and public path separately. Recognized account-owned entries with usable codes
+can use the downloader; slug-only matches cannot. Usable manifests are still
+required. `wlby` is Crash Bandicoot 4 (experimental download), not Call of Duty.
 
 These account endpoints are not part of Blizzard's documented developer API
 and may change; the code isolates them in `library.cpp` and labels their
@@ -145,6 +175,10 @@ verbatim; the exact command is printed so it can be reused in Steam shortcuts.
 and encrypted Salsa20 fixtures, encoding and archive-index lookups, TVFS parsing/resolution,
 CASC journal round-trips and salvage, FourCC decoding, account JSON parsers,
 shop menu/family parsers, cookie-jar handling and table rendering. The tests
-are plain `assert()` based and need no network; HttpClient networking,
-Installer orchestration, Runner execution and the full set of BLTE compression
-modes are not covered end to end.
+are plain `assert()` based and need no network. `openblizz_thirdparty_tests`
+additionally exercises Installer plan/install/verify/repair through an in-memory
+transport, dynamic id resolution, manifest integrity and error handling,
+completed-file reuse and repair from cache. See [THIRD_PARTY.md](THIRD_PARTY.md)
+for the precise coverage. Real HttpClient networking, gameplay, Runner
+execution and every product-specific storage/runtime variant are not covered
+end to end by CTest.

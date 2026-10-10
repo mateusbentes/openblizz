@@ -17,8 +17,8 @@ struct EntitlementRecord {
     std::string reason;
 };
 
-// Session cookies for the account.battle.net web application. Loaded only in
-// memory from a Netscape cookies.txt export or a raw Cookie header string.
+// Session cookies captured by browser login for the account.battle.net web
+// application. CookieSession loads them into its in-memory cookie engine.
 struct AccountWebSession {
     std::filesystem::path cookie_file;
     std::filesystem::path cookie_jar;   // optional write-back target
@@ -80,12 +80,14 @@ public:
         std::string name;
         std::string family;
         std::string reason;
+        std::string ngdp_product;
+        std::string shop_slug;
     };
 
     // Purchase history (account.battle.net /api/transactions). Each purchase
     // carries a localized productTitle which is matched against the catalog;
     // storefront cards can turn otherwise unknown third-party games into
-    // dynamic, ownership-only library entries.
+    // dynamic entries. Download requires an explicit usable NGDP appGameCode.
     struct PurchaseResult {
         std::vector<EntitlementRecord> records;
         std::vector<std::string> unmatched_titles;

@@ -15,6 +15,7 @@
 #include <sstream>
 #include <thread>
 #include <unordered_set>
+#include <unistd.h>
 
 namespace openblizz {
 namespace {
@@ -39,7 +40,11 @@ std::vector<std::uint8_t> read_file(const std::filesystem::path& path) {
 
 void write_atomic(const std::filesystem::path& path, const std::vector<std::uint8_t>& data) {
     std::filesystem::create_directories(path.parent_path());
-    const auto part = path.string() + ".part";
+    // Different output files can share an EKey/cache object. Their workers
+    // must not truncate or rename the same temporary cache filename.
+    static std::atomic<std::uint64_t> sequence{0};
+    const auto part = path.string() + ".part." + std::to_string(::getpid()) + "." +
+                      std::to_string(sequence.fetch_add(1));
     {
         std::ofstream output(part, std::ios::binary | std::ios::trunc);
         if (!output) throw std::runtime_error("cannot write temporary file: " + part);
@@ -177,9 +182,9 @@ std::vector<InstallEntry> Installer::select_entries(const InstallManifest& manif
 
 BuildContext Installer::context(const std::string& product, const std::string& region) const {
     BuildContext result;
-    result.product = find_product(catalog_.products(), product);
-    result.version = catalog_.version(product, region);
-    result.cdn = catalog_.select_cdn(product, region);
+    result.product = catalog_.resolve_product(product);
+    result.version = catalog_.version(result.product.agent_product, region);
+    result.cdn = catalog_.select_cdn(result.product.agent_product, region);
 
     if (!result.version.keyring.empty()) {
         const auto keyring_bytes = catalog_.fetch_config(result.cdn, result.version.keyring);
@@ -358,33 +363,66 @@ InstallPlan Installer::plan(const std::string& product, const std::string& regio
         throw std::runtime_error("product " + product + " has no encoding manifest in the current build");
     }
 
-    const auto install_decoded = catalog_.fetch_decoded_data(result.cdn, install_pair->encoding_key, result.keyring);
+    bool indexes_loaded = false;
+    const auto load_indexes = [&] {
+        if (indexes_loaded) return;
+        result.archive_entries = archive_entries(result.cdn, result.cdn_config);
+        indexes_loaded = true;
+    };
+    const auto manifest = [&](const KeyPair& pair) {
+        std::vector<std::uint8_t> encoded;
+        try {
+            encoded = catalog_.fetch_data(result.cdn, pair.encoding_key);
+        } catch (const std::exception& direct_error) {
+            // Some products publish the named-file manifests only inside an
+            // archive. Do not mistake a loose-object 404 for missing content.
+            const std::string direct_reason = direct_error.what();
+            load_indexes();
+            const auto location = result.archive_entries.find(pair.encoding_key);
+            if (location == result.archive_entries.end()) {
+                throw std::runtime_error("manifest " + pair.encoding_key +
+                    " is unavailable as a loose object or in the advertised archives: " + direct_reason);
+            }
+            encoded = catalog_.fetch_archive_range(result.cdn, location->second.archive_key,
+                                                   location->second.offset, location->second.encoded_size);
+        }
+        return BlteDecoder::decode(encoded, result.keyring);
+    };
+    const auto install_decoded = manifest(*install_pair);
+    if (md5_hex(install_decoded) != install_pair->content_key) {
+        throw std::runtime_error("install manifest content hash mismatch for " + product);
+    }
     result.install_manifest = parse_install_manifest(install_decoded);
     if (result.install_manifest.entries.empty()) {
         throw std::runtime_error("product " + product + " has an empty install manifest; the current CDN build is metadata-only");
     }
 
-    const auto encoding_decoded = catalog_.fetch_decoded_data(result.cdn, encoding_pair->encoding_key, result.keyring);
+    const auto encoding_decoded = manifest(*encoding_pair);
+    if (md5_hex(encoding_decoded) != encoding_pair->content_key) {
+        throw std::runtime_error("encoding manifest content hash mismatch for " + product);
+    }
     const auto encoding = EncodingIndex::parse(encoding_decoded);
     result.mappings = encoding.mappings();
-    result.selected_entries = select_entries(result.install_manifest, locale);
+    std::map<std::string, InstallEntry> outputs;
+    for (auto entry : select_entries(result.install_manifest, locale)) {
+        entry.path = safe_relative_path(entry.path).generic_string();
+        if (entry.path.empty() || entry.path == ".") throw std::runtime_error("empty install file path for " + product);
+        const auto [it, inserted] = outputs.emplace(lower(entry.path), entry);
+        if (!inserted) {
+            if (it->second.content_key != entry.content_key || it->second.file_size != entry.file_size) {
+                throw std::runtime_error("conflicting install entries for " + entry.path +
+                                         "; refusing concurrent writes to the same file");
+            }
+            continue; // identical output: process once, including case aliases on Wine
+        }
+        result.selected_entries.push_back(std::move(entry));
+    }
+    if (result.selected_entries.empty()) {
+        throw std::runtime_error("product " + product + " has no selected Windows install files for locale " + locale);
+    }
     for (const auto& entry : result.selected_entries) result.total_bytes += entry.file_size;
 
-    const auto archive_hashes = result.cdn_config.get("archives");
-    if (!archive_hashes.empty()) {
-        std::cout << "Loading " << archive_hashes.size() << " archive indexes.\n";
-        std::mutex merge_mutex;
-        run_parallel(8, archive_hashes.size(), [&](std::size_t i) {
-            const auto index = ArchiveIndex::parse(archive_index_bytes(result.cdn, archive_hashes[i]));
-            std::lock_guard lock(merge_mutex);
-            for (const auto& [encoding_key, location] : index.entries()) {
-                auto archive_location = location;
-                archive_location.archive_key = archive_hashes[i];
-                result.archive_entries.try_emplace(encoding_key, std::move(archive_location));
-            }
-        });
-        std::cout << "Archive index entries: " << result.archive_entries.size() << "\n";
-    }
+    load_indexes();
 
     if (result.build_config.contains("vfs-root") && !options.skip_data) {
         result.casc = true;
@@ -413,6 +451,26 @@ std::vector<std::uint8_t> Installer::archive_index_bytes(const CdnInfo& cdn, con
     auto bytes = catalog_.fetch_archive_index(cdn, hash);
     write_atomic(path, bytes);
     return bytes;
+}
+
+std::unordered_map<std::string, ArchiveLocation> Installer::archive_entries(
+    const CdnInfo& cdn, const ConfigFile& config) const {
+    std::unordered_map<std::string, ArchiveLocation> entries;
+    const auto hashes = config.get("archives");
+    if (hashes.empty()) return entries;
+    std::cout << "Loading " << hashes.size() << " archive indexes.\n";
+    std::mutex merge_mutex;
+    run_parallel(8, hashes.size(), [&](std::size_t i) {
+        const auto index = ArchiveIndex::parse(archive_index_bytes(cdn, hashes[i]));
+        std::lock_guard lock(merge_mutex);
+        for (const auto& [key, location] : index.entries()) {
+            auto resolved = location;
+            resolved.archive_key = hashes[i];
+            entries.try_emplace(key, std::move(resolved));
+        }
+    });
+    std::cout << "Archive index entries: " << entries.size() << "\n";
+    return entries;
 }
 
 std::vector<std::uint8_t> Installer::fetch_encoded(
@@ -707,7 +765,7 @@ void Installer::write_storage_metadata(const InstallPlan& plan, const std::files
     record.cdn_servers = plan.cdn.servers;
     record.tags = build_info_tags(plan.version.region, plan.locale);
     record.version = plan.version.version_name;
-    record.product = plan.product.id;
+    record.product = plan.version.product;
     write_atomic(directory / ".build.info", format_build_info(record));
 }
 

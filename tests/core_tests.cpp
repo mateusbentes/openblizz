@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -244,13 +245,56 @@ int main() {
         {"w3", "Warcraft III: Reforged", openblizz::OwnershipState::Manual,
          "manual", "test", 1},
         {"thirdparty-example-game", "Example Game", openblizz::OwnershipState::Owned,
-         "account-purchases", "storefront /product/example-game", 2, "thirdparty"},
+         "account-purchases", "storefront /product/example-game", 2, "thirdparty",
+         "exg", "/product/example-game"},
     });
     const auto loaded = openblizz::LibraryManager::load(library_path);
     assert(loaded.size() == 2);
     assert(loaded.front().ownership == openblizz::OwnershipState::Manual);
     assert(loaded.back().family == "thirdparty");
+    assert(loaded.front().ngdp_product.empty() && loaded.front().shop_slug.empty());
+    assert(loaded.back().ngdp_product == "exg");
+    assert(loaded.back().shop_slug == "/product/example-game");
     std::filesystem::remove(library_path);
+
+    {
+        // A catalog rename must refresh the display and later persistence,
+        // without clearing licenses or overwriting dynamic purchase metadata.
+        openblizz::HttpClient http;
+        openblizz::Catalog catalog(http);
+        openblizz::LibraryManager::save(library_path, {
+            {"wlby", "Call of Duty (NGDP code wlby)", openblizz::OwnershipState::Unknown,
+             "account-web", "no account record", 123, "callofduty"},
+            {"lyra", "Old Witcher label", openblizz::OwnershipState::Owned,
+             "account-purchases", "purchase evidence", 456, "thirdparty"},
+            {"thirdparty-example-game", "Purchased Example Edition", openblizz::OwnershipState::Owned,
+             "account-purchases", "dynamic evidence", 789, "thirdparty", "exg", "/product/example-game"},
+        });
+        std::ostringstream printed;
+        auto* previous = std::cout.rdbuf(printed.rdbuf());
+        openblizz::LibraryManager::list(catalog, library_path, true);
+        openblizz::LibraryManager::add(catalog, library_path, "w3");
+        std::cout.rdbuf(previous);
+        assert(printed.str().find("Crash Bandicoot 4: It's About Time") != std::string::npos);
+        assert(printed.str().find("Call of Duty (NGDP code wlby)") == std::string::npos);
+        const auto refreshed = openblizz::LibraryManager::load(library_path);
+        for (const auto& entry : refreshed) {
+            if (entry.product_id == "wlby") {
+                assert(entry.name == "Crash Bandicoot 4: It's About Time" && entry.family == "thirdparty");
+                assert(entry.ownership == openblizz::OwnershipState::Unknown && entry.updated_at == 123);
+                assert(entry.source == "account-web" && entry.reason == "no account record");
+            } else if (entry.product_id == "lyra") {
+                assert(entry.name == "The Witcher 3: Wild Hunt Remastered");
+                assert(entry.ownership == openblizz::OwnershipState::Owned && entry.updated_at == 456);
+                assert(entry.source == "account-purchases" && entry.reason == "purchase evidence");
+            } else if (entry.product_id == "thirdparty-example-game") {
+                assert(entry.name == "Purchased Example Edition" && entry.ngdp_product == "exg");
+                assert(entry.shop_slug == "/product/example-game" && entry.updated_at == 789);
+                assert(entry.ownership == openblizz::OwnershipState::Owned && entry.reason == "dynamic evidence");
+            }
+        }
+        std::filesystem::remove(library_path);
+    }
 
     const std::vector<openblizz::ProductDescriptor> web_products{
         {"w3", "Warcraft III: Reforged", "warcraft", "w3", true},
@@ -346,6 +390,8 @@ int main() {
         assert(purchases.records[0].product_id == "thirdparty-exg" && purchases.records[0].owned);
         assert(purchases.dynamic_products.size() == 1);
         assert(purchases.dynamic_products[0].name == "Example Game");
+        assert(purchases.dynamic_products[0].ngdp_product == "exg");
+        assert(purchases.dynamic_products[0].shop_slug == "/product/example-game");
         assert(purchases.unmatched_titles.empty());
     }
     {

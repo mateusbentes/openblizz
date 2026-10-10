@@ -10,13 +10,21 @@ notes below.
 |---|---|---|---|---|
 | `$XDG_CONFIG_HOME/openblizz/battlenet-cookies.txt` (default `~/.config/openblizz/battlenet-cookies.txt`) | `0600` | Netscape-format `battle.net` session jar captured by `login`; renewal may update it during account-library refresh, including when an explicit `--cookie-jar` path is used | `login` | `logout` |
 | `$XDG_CONFIG_HOME/openblizz/browser-profile/` | `0700` | isolated browser profile used only for the login window (no history or passwords from your normal profile). For snap/flatpak browsers the profile is placed inside the directory the sandbox can reach (`~/snap/<name>/common/openblizz-profile`, `~/.var/app/<id>/openblizz-profile`) | `login` | you may delete it any time |
-| `$XDG_STATE_HOME/openblizz/library.json` (default `~/.local/state/openblizz/library.json`) | `0600` | JSON schema 1 with `products[]` records containing `product_id`, `name`, `ownership`, `source`, `reason`, `updated_at` and optional `family`; dynamic storefront purchases use family `thirdparty` and retain only public product metadata | `login`, `library scan`, `library add/remove`, and stale-session auto-refresh from account-dependent commands | `library remove` or delete the file |
-| `$XDG_CACHE_HOME/openblizz/` (default `~/.cache/openblizz/`) | umask-dependent | decoded content objects under `objects/` and archive indexes under `indices/`, keyed by hash; safe to delete and re-downloaded on demand | `plan`, `vfs`, `install`, `update`, `verify`, `repair` | delete freely |
+| `$XDG_STATE_HOME/openblizz/library.json` (default `~/.local/state/openblizz/library.json`) | `0600` | JSON schema 1 with `products[]` records containing `product_id`, `name`, `ownership`, `source`, `reason`, `updated_at`, `family`, `ngdp_product` and `shop_slug`; missing optional fields in older files load as empty strings | `login`, `library scan`, `library add/remove`, and stale-session auto-refresh from account-dependent commands | `library remove` or delete the file |
+| `$XDG_CACHE_HOME/openblizz/` (normally `~/.cache/openblizz/`; if both `XDG_CACHE_HOME` and `HOME` are unavailable, a cwd-based cache path is used) | umask-dependent | decoded content objects under `objects/` and archive indexes under `indices/`, keyed by hash; safe to delete and re-downloaded on demand | `plan`, `vfs`, `install`, `update`, `verify`, `repair` | delete freely |
 
-Override them with `--cookie-jar PATH`, `--library-file PATH`,
-`library scan --dump PATH` or `login --profile-dir PATH`; those explicit paths
-may be anywhere. The cache follows `XDG_CACHE_HOME` only. A launch without
-`--prefix` creates `./.openblizz-prefix` relative to the current directory.
+Override them with `--cookie-jar PATH` (login/logout/scan/list auto-refresh and
+install/update/repair), `--library-file PATH`, `library scan --dump PATH` or
+`login --profile-dir PATH`; those explicit paths may be anywhere. The cache
+resolves `XDG_CACHE_HOME` first, then `HOME`, then the current working directory
+when neither variable is usable. A launch without `--prefix` creates
+`./.openblizz-prefix` relative to the current directory.
+
+Dynamic storefront purchases retain the purchase title in `reason`, family
+`thirdparty`, and explicit `appGameCode` in `ngdp_product`; the public product
+path is stored separately as `shop_slug`. Only the code is used for download
+resolution, never the free-text reason or slug. Older dynamic entries need a
+new scan to acquire the fields. See [THIRD_PARTY.md](THIRD_PARTY.md).
 
 ## Game directory layout
 

@@ -7,6 +7,12 @@ Options can appear in any order after the command; flags that take a value use
 curated catalog also contains legacy or ownership-only ids such as `d2-classic`
 and `d2-lod`. Run `openblizz --help` for the compact summary.
 
+Account-owned dynamic ids printed by `library list` (for example
+`thirdparty-exg`) can also be used when the scan retained an explicit usable
+`ngdp_product`. Requests use that NGDP code, not the local id or product slug.
+Slug-only entries remain ownership-only; rerun `library scan` after upgrading
+from a version that did not persist these fields. See [THIRD_PARTY.md](THIRD_PARTY.md).
+
 Exit codes:
 
 | Code | Meaning |
@@ -22,8 +28,8 @@ Common concepts and their usual scopes (not every option is accepted by every co
 |---|---|---|
 | `--region us` | `us` | Ribbit/version server region for commands that expose it: `us`, `eu`, `kr`, `tw`, `cn`, `sg`. It affects builds/CDN hosts, not your account |
 | `--locale enUS` | `enUS` | locale for plan/install/update/verify/repair (`enUS`, `ptBR`, `deDE`, `esES`, `frFR`, `itIT`, `koKR`, `plPL`, `ruRU`, `zhCN`, `zhTW`, ...) |
-| `--cookie-jar PATH` | XDG config default | browser session path for login/logout/scan and account validation; account-library auto-refresh uses the default jar in the current implementation |
-| `--library-file PATH` | XDG state default | ownership state path for library commands and account-gated install/update/repair |
+| `--cookie-jar PATH` | XDG config default | saved browser session for login/logout/scan, list auto-refresh and account-gated install/update/repair |
+| `--library-file PATH` | XDG state default | ownership state for library/account commands and dynamic id resolution in versions/cdns/plan/vfs/install/update/verify/repair |
 
 ## Typical workflow
 
@@ -35,7 +41,7 @@ openblizz launch --directory ~/Games/Warcraft3/x86_64 --exe "Warcraft III.exe" \
                  --prefix ~/Games/openblizz/warcraft3 -- -launch
 # later
 openblizz update w3 --directory ~/Games/Warcraft3    # fetch the new build
-openblizz verify w3 --directory ~/Games/Warcraft3    # quick check; add --deep to re-hash everything
+openblizz verify w3 --directory ~/Games/Warcraft3    # add --deep to hash CASC objects in this plan
 openblizz repair w3 --directory ~/Games/Warcraft3    # re-download what verify flagged
 ```
 
@@ -64,20 +70,22 @@ there is no `--region` selector for `--shop` yet.
 Call of Duty and third-party products need separate status checks; being listed
 does not mean that the current build contains downloadable game data:
 
-- **Call of Duty** (`odin`, `zeus`, `fore`, `lazr`, `nina`, `auks`, `wlby`, ...)
+- **Call of Duty** (`odin`, `zeus`, `fore`, `lazr`, `nina`, `auks`, ...)
   *is* published through Ribbit/NGDP: `versions`, `cdns` and the build config
   are public and readable. OpenBlizz can decode BLTE `E` chunks when a public
   KeyRing entry is present, but the complete content/key/runtime combination
   is not validated for Call of Duty. The games also require the Battle.net
   client and anti-cheat, so they remain metadata-only and `plan`/`install` are
   intentionally gated by the catalog.
-  Implementing this would mean reproducing Blizzard's key delivery and the
-  Battle.net client's runtime, which is out of scope for a clean-room project.
-- **Third-party storefront titles** (The Witcher 3 Remastered and similar) are
-  mapped to known ids when possible. The current `lyra` NGDP build is a
-  metadata-only placeholder with an empty install manifest. `plan lyra` fails
-  explicitly instead of reporting a successful zero-file install. If a future
-  build exposes real install data, its normal NGDP plan can be tested then.
+  This change does not implement private key delivery, DRM/authentication
+  bypass or anti-cheat support.
+- **Crash Bandicoot 4** (`wlby`) is a third-party product, not Call of Duty.
+  Its public plan was verified on 2026-10-10 (1,123 files); download support is
+  experimental and runtime compatibility has not been verified.
+- **Other third-party titles** can use the same pipeline when account-derived
+  dynamic metadata supplies a usable NGDP code and supported complete
+  manifests. The `lyra` build inspected on 2026-10-10 still has an empty
+  install manifest. `plan lyra` rejects it before loading archive indexes.
 
 See [SCOPE.md](SCOPE.md) for the full category breakdown and the recommended
 way to play each kind of title on Linux.
@@ -103,9 +111,13 @@ install manifests, archive indexes (cached under the XDG cache) and, for TVFS
 products, the virtual file system; then prints the summary (version, build
 config, selected files, selected bytes, encoding mappings). Use it to see the
 download size before committing disk space. If the current build has an empty
-install manifest (for example the public `lyra` metadata-only build), `plan`
-stops before loading archive indexes and reports that the CDN build is
-metadata-only.
+install manifest fetched successfully (for example the public `lyra`
+metadata-only build), `plan` stops before loading archive indexes and reports
+that the CDN build is metadata-only. If an IN/EN manifest cannot be fetched as
+a loose object, `plan` loads the announced archive indexes and tries its exact
+EKey by HTTP Range, retaining decoded-content hash validation. This extends
+the generic downloader without claiming every third-party build is supported;
+see [third-party coverage](THIRD_PARTY.md#coverage-policy-protocol-support-not-a-fixed-game-whitelist).
 
 ### `openblizz vfs manifests <product> [--region us]`
 
@@ -190,9 +202,11 @@ Resulting states: `owned`, `not owned` (title absent from an endpoint that
 would list it, or `Trial`), `unknown` (could not be checked), `owned (manual)`
 (added with `library add`). If a purchase is not in the curated catalog,
 `library scan` performs a conditional public storefront lookup. A matching
-`/product/` card creates a dynamic ownership-only `thirdparty-*` entry using
-the card name, slug and `appGameCode`; it is grouped under Third-party Battle.net
-titles and is not assumed to be installable. Purchases without a matching card
+`/product/` card creates a dynamic `thirdparty-*` entry using the card name,
+slug and `appGameCode`; it is grouped under Third-party Battle.net titles.
+An explicit code is persisted as `ngdp_product` for the downloader; `shop_slug`
+is only a storefront path. Ownership alone does not prove installability.
+Purchases without a matching card
 remain under "Purchases not mapped to an installable product" so nothing is
 hidden. Known classic license/expansion patterns are handled by the fixed
 catalog mappings; generic `Digital License`, `Expansion Set`, `DLC`, `Upgrade`
@@ -216,7 +230,9 @@ Manual override for products the account page cannot express. `add` marks the
 product `owned (manual)` so ownership gating does not require `--force`; a
 valid session is still required by `install`, `update` and `repair`. It is
 recorded as manual, not as proof of ownership. `remove` deletes the manual
-entry (scanned entries are rebuilt by the next scan).
+entry (scanned entries are rebuilt by the next scan). `remove` also accepts
+dynamic ids present in the local library. A manual entry cannot authorize a
+third-party download.
 
 ---
 
@@ -229,7 +245,9 @@ resolves the current build and may need network access. All four print the plan
 summary first, then act.
 
 Before downloading they check ownership: `not owned` aborts (override with
-`--force`), `unknown` only warns, `owned`/`owned (manual)` proceeds.
+`--force`), `unknown` only warns, `owned`/`owned (manual)` proceeds for the
+older curated Blizzard path. **Third-party** downloads require account-detected
+`owned`; neither manual entries nor `unknown` nor `--force` replaces it.
 
 ### `openblizz install <product> --directory DIR [options]`
 
@@ -244,11 +262,11 @@ openblizz install w3 --directory ~/Games/Warcraft3 [--region us] [--locale enUS]
 | `--directory DIR` | required | game root; created if missing |
 | `--locale` | `enUS` | locale whose data is stored in addition to enUS |
 | `--all-locales` | off | store every `_locales/*.w3mod` (W3: roughly +3 GB per language) |
-| `--no-data` | off | only the install manifest (executables/DLLs); skip the CASC data store |
+| `--no-data` | off | retain selected install-manifest files; skip TVFS/CASC population. A containerless manifest may itself contain large game data files |
 | `--jobs N` | `4` | parallel downloads |
 | `--limit N` | all | only process the first N install-manifest files (testing) |
 | `--data-limit BYTES` | all | stop filling the CASC store after this many bytes (testing) |
-| `--force` | off | ignore a `not owned` library state |
+| `--force` | off | override `not owned` in the curated Blizzard path; never authorizes a third-party download or replaces login |
 
 What is written (Warcraft III: Reforged):
 
@@ -262,11 +280,11 @@ DIR/
   Data/data/*.idx, Data/data/data.NNN  local CASC storage with the TVFS content
 ```
 
-Downloads are resumable: re-running `install` skips objects already present in
-the local CASC index (`(already verified)` is the current progress label) and
-continues where it stopped. Objects are fetched
-through CDN archives using HTTP Range requests, so interrupted downloads waste
-little bandwidth.
+Completed install-manifest files are hashed and skipped when valid (the
+`already verified` label). Completed CASC objects found in the local index are
+counted as `already stored`; interrupted unindexed records can be salvaged.
+Rerunning the same install reuses them. Archive-backed content uses HTTP Range,
+but a failed partial object is not promised byte-by-byte resume.
 
 **Resume and failure handling.** `install` is idempotent: every CASC object
 already present in `Data/data` (indexed by the `.idx` journals, or recovered
@@ -286,12 +304,14 @@ options; kept as a separate verb for clarity.
 
 Checks the installation against the current build:
 
-- default: every install-manifest file (executables, DLLs) is fully hashed
-  (MD5 against the content key); `.build.info`, `Data/config` and the presence
-  and size of every CASC object referenced by the TVFS are checked through the
-  `.idx` files (fast, mostly metadata);
-- `--deep`: additionally re-hashes every stored CASC object — reads the whole
-  installation (~35 GB for W3 enUS).
+- default: every **selected** install-manifest file (executables, DLLs) is
+  fully hashed (MD5 against the content key); `.build.info` and `Data/config`
+  are checked only for presence; the presence and size of each CASC object in
+  the plan's `data_objects` list are checked through the `.idx` files (fast,
+  mostly metadata);
+- `--deep`: additionally re-hashes only the CASC objects in
+  `plan.data_objects`; it does not sweep unrelated objects elsewhere in the
+  CASC store (about 35 GB for W3 enUS).
 
 Prints one line per problem and exits `2` when anything is wrong, `0` otherwise.
 

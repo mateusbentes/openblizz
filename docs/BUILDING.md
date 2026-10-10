@@ -16,6 +16,13 @@ Recommended toolchain: GCC 11+ or Clang 14+, CMake 3.20+,
 provide sufficient C++20 support; Debian 11 additionally needs a newer CMake.
 The build has no network access requirements (no FetchContent, no submodules).
 
+The distribution sections are dependency/source-build recipes, not a claim
+that every listed distribution, release or CPU was tested. Package availability
+and names may change. The release workflow builds on Ubuntu 24.04 for x86_64
+and AArch64; validate a recipe on your target before packaging or promising
+support. Minimum dependency versions below are guidance, not CMake-enforced
+version checks for each library.
+
 Everything below assumes you cloned the repository:
 
 ```bash
@@ -67,7 +74,7 @@ CMake options:
 | Option | Default | Meaning |
 |---|---|---|
 | `CMAKE_BUILD_TYPE` | (empty) | `Release` for an optimised binary, `Debug` for symbols |
-| `OPENBLIZZ_BUILD_TESTS` | `ON` | build and register `openblizz_tests` with CTest |
+| `OPENBLIZZ_BUILD_TESTS` | `ON` | build and register core and third-party integration tests with CTest; both use synthetic fixtures and need no network |
 | `CMAKE_INSTALL_PREFIX` | `/usr/local` | where `cmake --install build` puts `bin/openblizz` |
 | `CMAKE_CXX_COMPILER` | system default | e.g. `clang++` |
 
@@ -130,9 +137,11 @@ it. Two supported routes:
    ```
    Run `openblizz` from inside the container (`distrobox enter ob -- ~/openblizz/build/openblizz ...`)
    or export it to the host with `distrobox-export --bin ~/openblizz/build/openblizz`.
-   The game directory, Proton prefix and `~/.config/openblizz` live in your
-   home directory and are shared with the host, so `launch` and adding the game
-   to Steam work normally.
+   The game directory and `~/.config/openblizz` are shared with the host, so
+   `launch` and adding the game to Steam work normally. When no `--prefix` is
+   supplied, `launch` uses `./.openblizz-prefix` relative to its current
+   working directory, which is not necessarily `$HOME`; pass an explicit
+   prefix when you need a stable location.
 2. **Copy a binary built on Arch Linux**: SteamOS is Arch-based, but this is
    an ABI-dependent convenience rather than a guarantee. Prefer the container
    build or test the copied binary on the target SteamOS image.
@@ -153,8 +162,10 @@ Leap 15.5 defaults to GCC 7; add `gcc12-c++` and configure with
 sudo apk add git cmake g++ pkgconf curl-dev openssl-dev zlib-dev lz4-dev nlohmann-json
 ```
 
-musl is fully supported; the binary is static-friendly if you add
-`-DCMAKE_EXE_LINKER_FLAGS=-static` and the `*-static` dev packages.
+This is a source-build recipe, not a tested musl support guarantee. The
+published Linux binaries target glibc and are not Alpine-native. Fully static
+linking also needs static versions of every transitive dependency and has
+not been validated by the release workflow.
 
 ### Void Linux
 
@@ -237,9 +248,10 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
 cmake --build build -j"$(sysctl -n hw.ncpu)"
 ```
 
-Catalog, plan, install, verify, repair, login (Firefox/Chromium) and library
-commands work. `launch` has only `native` and `wine` backends on macOS; Proton
-is Linux-only.
+These are starting instructions for an unvalidated port, not a claim that
+the complete client works on macOS. Browser automation and runner code use
+POSIX/Linux assumptions; only Linux is built by the release workflow.
+Proton is Linux-only, and selecting `native` does not make the client portable.
 
 ## Windows (experimental)
 
@@ -275,6 +287,7 @@ ctest --test-dir build --output-on-failure      # parsers, hashes, TVFS, CASC, s
 cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 cmake --build build-debug -j"$(nproc)"
 ./build-debug/openblizz_tests
+./build-debug/openblizz_thirdparty_tests
 ```
 
 Warnings are enabled (`-Wall -Wextra -Wpedantic`) for `openblizz_core`; the
@@ -297,4 +310,6 @@ cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug \
   [FILES.md](FILES.md), to the game directory passed with `--directory`, and
   to `./.openblizz-prefix` when `launch` is used without `--prefix`. Explicit
   `--cookie-jar`, `--library-file`, `--dump`, `--profile-dir` and `--prefix`
-  options may direct output elsewhere.
+  options may direct output elsewhere. `library scan --dump` writes raw account
+  JSON responses; treat the dump as sensitive account/purchase data and redact
+  it before sharing.

@@ -48,13 +48,18 @@ Battle.net login page, waits until you finish (password, MFA, captcha), keeps th
 session cookies with owner-only permissions, closes the window and scans your
 library. Every later command (library scan, install, update, repair) reuses that
 saved session and renews it automatically; logout deletes it. OpenBlizz never
-sees your password and does not use the Battle.net app, Agent or OAuth API.
+sees your password and does not use the Battle.net app, Agent or a public
+developer OAuth client. Session renewal follows the account site's login flow.
+Owned dynamic library ids can use the NGDP downloader when their storefront
+metadata provides an explicit appGameCode. Run plan first; an owned license
+does not guarantee a complete public build or Proton compatibility.
 The vfs commands mount the TVFS manifests of the current build (vfs-root plus
 the nested vfs-N manifests) and list the virtual files they describe.
 For products with a TVFS root (Warcraft III: Reforged), install also fills the
 local CASC storage (Data/data, Data/config, Data/indices, .build.info) with the
 game data for enUS plus --locale; --all-locales keeps every language and
---no-data restores the old executables-only behaviour. Warcraft III expects
+--no-data skips CASC population, retaining selected install-manifest files.
+Warcraft III: Reforged expects
 "-launch" to start without the Battle.net app: launch ... -- -launch
 )";
 }
@@ -206,9 +211,8 @@ int main(int argc, char** argv) {
             ob::HttpClient http;
             ob::Catalog catalog(http);
             if (has_flag(args, "--shop")) {
-                // Battle.net storefront. The "Games" navigation menu is the complete
-                // list of titles sold there (including third-party games); a family
-                // page lists the editions/products of one franchise.
+                // Public storefront cards exposed by navigation/family pages;
+                // these pages can change and do not guarantee a full catalog.
                 ob::CookieSession shop(std::string{});  // the storefront needs cookies across its login redirects
                 const auto family = option(args, "--family");
                 const auto url = "https://us.shop.battle.net/en-us" + (family.empty() ? std::string{} : "/family/" + family);
@@ -217,15 +221,15 @@ int main(int argc, char** argv) {
                 const auto library = ob::LibraryManager::load(library_file(args));
                 const auto library_status = [&](const std::string& destination) -> std::string {
                     const auto ids = ob::LibraryManager::shop_destination_products(destination);
-                    if (ids.empty()) return "-";
                     std::string owned;
                     for (const auto& entry : library) {
-                        if (std::find(ids.begin(), ids.end(), entry.product_id) == ids.end()) continue;
+                        if (entry.shop_slug != destination &&
+                            std::find(ids.begin(), ids.end(), entry.product_id) == ids.end()) continue;
                         if (entry.ownership == ob::OwnershipState::Owned || entry.ownership == ob::OwnershipState::Manual) {
                             owned += (owned.empty() ? "" : ", ") + entry.product_id;
                         }
                     }
-                    return owned.empty() ? "not in library" : "owned (" + owned + ")";
+                    return owned.empty() ? (ids.empty() ? "-" : "not in library") : "owned (" + owned + ")";
                 };
                 if (!family.empty()) {
                     ob::Table table({"Product", "Franchise", "Library", "Shop page"});
@@ -244,7 +248,7 @@ int main(int argc, char** argv) {
                     std::cout << "The storefront returned no game list.\n";
                 } else {
                     table.print();
-                    std::cout << "\nEvery game sold on the Battle.net storefront (its navigation menu). `--family <slug>` lists the\n"
+                    std::cout << "\nGames exposed by the Battle.net storefront navigation. `--family <slug>` lists the\n"
                                  "products of one family page. The Library column cross-references your `openblizz library list`.\n";
                 }
                 return 0;
@@ -275,10 +279,12 @@ int main(int argc, char** argv) {
                 }
                 std::string install_cell = "openblizz install " + product.id;
                 if (product.id == "lyra") {
-                    install_cell = "metadata-only (current CDN build)";
+                    install_cell = "NGDP pipeline; check with plan";
+                } else if (product.id == "wlby") {
+                    install_cell = "openblizz install wlby (experimental)";
                 } else if (!product.supported) {
                     install_cell = product.family == "callofduty"
-                        ? "not installable (encrypted content, needs Battle.net client)"
+                        ? "metadata-only (content/runtime unvalidated)"
                         : "legacy installer only (ownership tracked)";
                 }
                 table.add({product.id, product.name, install_cell});
@@ -296,7 +302,8 @@ int main(int argc, char** argv) {
             const auto subcommand = args.front();
             const auto path = library_file(args);
             if (subcommand == "list") {
-                ob::LibraryManager::auto_refresh(catalog, path, ob::LibraryManager::default_cookie_jar(), 6 * 3600);
+                ob::LibraryManager::auto_refresh(catalog, path,
+                    option(args, "--cookie-jar", ob::LibraryManager::default_cookie_jar().string()), 6 * 3600);
                 return ob::LibraryManager::list(catalog, path, has_flag(args, "--all"));
             }
             if (subcommand == "add" || subcommand == "remove") {
@@ -365,7 +372,7 @@ int main(int argc, char** argv) {
         }
 
         ob::HttpClient http;
-        ob::Catalog catalog(http);
+        ob::Catalog catalog(http, ob::LibraryManager::load(library_file(args)));
         if (command == "vfs") {
             ob::Installer installer(catalog, default_cache());
             return vfs_command(installer, args);
@@ -410,8 +417,19 @@ int main(int argc, char** argv) {
                 }
                 std::cout << "Authentication: Battle.net account session verified\n";
                 const auto library_path = library_file(args);
-                ob::LibraryManager::auto_refresh(catalog, library_path, ob::LibraryManager::default_cookie_jar(), 6 * 3600);
+                ob::LibraryManager::auto_refresh(catalog, library_path, jar, 6 * 3600);
+                catalog.set_library(ob::LibraryManager::load(library_path));
                 const auto ownership = ob::LibraryManager::ownership_of(library_path, product);
+                const auto descriptor = catalog.resolve_product(product);
+                const auto entries = ob::LibraryManager::load(library_path);
+                const bool account_owned = std::any_of(entries.begin(), entries.end(), [&](const auto& entry) {
+                    return entry.product_id == product && entry.ownership == ob::OwnershipState::Owned &&
+                           (entry.source == "account-web" || entry.source == "account-purchases");
+                });
+                if (descriptor.family == "thirdparty" && !account_owned) {
+                    throw std::runtime_error("third-party downloads require account-derived ownership for " + product +
+                                             "; run `openblizz library scan`. Manual entries and --force do not replace it");
+                }
                 if (ownership == ob::OwnershipState::NotOwned && !has_flag(args, "--force")) {
                     throw std::runtime_error("your Battle.net account does not own " + product +
                                              " (library state: not_owned); use --force to override");

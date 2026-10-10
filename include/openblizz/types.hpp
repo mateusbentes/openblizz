@@ -58,7 +58,9 @@ struct LibraryEntry {
     std::string source;
     std::string reason;
     std::int64_t updated_at{};
-    std::string family;   // display grouping, from the catalog (not persisted)
+    std::string family{};   // persisted display grouping
+    std::string ngdp_product{};  // explicit storefront appGameCode, never inferred from a slug
+    std::string shop_slug{};     // public storefront path, not a download URL
 };
 
 struct VersionInfo {

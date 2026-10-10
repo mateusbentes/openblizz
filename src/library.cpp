@@ -58,7 +58,11 @@ std::vector<LibraryEntry> catalog_entries(const Catalog& catalog,
         const auto it = by_id.find(product.id);
         if (it != by_id.end()) {
             auto entry = it->second;
-            if (entry.name.empty()) entry.name = product.name;
+            // Curated labels may change (for example wlby was corrected from
+            // Call of Duty to Crash 4). Do not keep an obsolete cached name.
+            // Ownership/evidence is retained; dynamic purchase names below
+            // remain untouched because they are not in the curated catalog.
+            entry.name = product.name;
             entry.family = product.family;
             result.push_back(std::move(entry));
         } else {
@@ -141,6 +145,8 @@ std::vector<LibraryEntry> LibraryManager::load(const std::filesystem::path& path
         entry.reason = item.value("reason", std::string{});
         entry.updated_at = item.value("updated_at", std::int64_t{0});
         entry.family = item.value("family", std::string{});
+        entry.ngdp_product = item.value("ngdp_product", std::string{});
+        entry.shop_slug = item.value("shop_slug", std::string{});
         result.push_back(std::move(entry));
     }
     return result;
@@ -161,6 +167,8 @@ void LibraryManager::save(const std::filesystem::path& path,
             {"reason", entry.reason},
             {"updated_at", entry.updated_at},
             {"family", entry.family},
+            {"ngdp_product", entry.ngdp_product},
+            {"shop_slug", entry.shop_slug},
         });
     }
 
@@ -268,13 +276,15 @@ int LibraryManager::add(const Catalog& catalog, const std::filesystem::path& pat
 int LibraryManager::remove(const Catalog& catalog, const std::filesystem::path& path,
                            const std::string& product_id) {
     const auto products = catalog.products();
-    const auto& product = find_product(products, product_id);
     auto entries = load(path);
+    const bool known = std::any_of(products.begin(), products.end(), [&](const auto& p) { return p.id == product_id; }) ||
+                       std::any_of(entries.begin(), entries.end(), [&](const auto& e) { return e.product_id == product_id; });
+    if (!known) throw std::runtime_error("product is not in the local library or catalog: " + product_id);
     entries.erase(std::remove_if(entries.begin(), entries.end(), [&](const LibraryEntry& entry) {
-        return entry.product_id == product.id;
+        return entry.product_id == product_id;
     }), entries.end());
     save(path, entries);
-    std::cout << "Removed " << product.id << " from the local library.\n";
+    std::cout << "Removed " << product_id << " from the local library.\n";
     return 0;
 }
 
@@ -732,7 +742,8 @@ LibraryManager::PurchaseResult LibraryManager::parse_purchases(
                                 std::string reason = "purchase \"" + title + "\"; storefront " + card->slug;
                                 if (!card->app_game_code.empty()) reason += "; appGameCode " + card->app_game_code;
                                 result.dynamic_products.push_back(
-                                    {dynamic_id, card->name.empty() ? title : card->name, "thirdparty", reason});
+                                    {dynamic_id, card->name.empty() ? title : card->name, "thirdparty", reason,
+                                     lower(card->app_game_code), card->slug});
                                 result.records.push_back({dynamic_id, true, true, "account-purchases", reason});
                             }
                             matched = !dynamic_id.empty();
@@ -1052,21 +1063,38 @@ int LibraryManager::scan(const Catalog& catalog, const std::filesystem::path& pa
             });
             if (existing == entries.end()) {
                 entries.push_back({dynamic.product_id, dynamic.name, OwnershipState::Owned,
-                                   "account-purchases", dynamic.reason, now_seconds(), dynamic.family});
+                                   "account-purchases", dynamic.reason, now_seconds(), dynamic.family,
+                                   dynamic.ngdp_product, dynamic.shop_slug});
             } else if (!dynamic.name.empty()) {
                 existing->name = dynamic.name;
                 existing->family = dynamic.family;
+                existing->ngdp_product = dynamic.ngdp_product;
+                existing->shop_slug = dynamic.shop_slug;
             }
         }
         apply_records(entries, web.records, "account-web");
+        // Generic account codes are usable only when this scan matched them
+        // against the actual Ribbit summary. Persist that explicit mapping;
+        // the installer must not later infer a code from an arbitrary local id.
+        for (auto& entry : entries) {
+            const auto match = std::find_if(products.begin(), products.end(), [&](const auto& product) {
+                return product.family == "ngdp" && product.id == entry.product_id;
+            });
+            if (match != products.end() && entry.source == "account-web" &&
+                entry.ownership == OwnershipState::Owned) {
+                entry.ngdp_product = match->agent_product;
+            }
+        }
         save(path, entries);
         if (options.quiet) return 0;
         std::cout << "Recognized account entries: " << web.records.size()
                   << " (purchases matched: " << purchases.records.size() << ")\n";
         if (!purchases.dynamic_products.empty()) {
-            std::cout << "Dynamically mapped third-party purchases (ownership detected; installability unverified):\n";
+            std::cout << "Dynamically mapped third-party purchases (use plan to check the public NGDP build):\n";
             for (const auto& product : purchases.dynamic_products) {
-                std::cout << "  " << product.product_id << "\t" << product.name << '\n';
+                std::cout << "  " << product.product_id << "\t" << product.name
+                          << (product.ngdp_product.empty() ? " (ownership-only; no appGameCode)" : " (NGDP " + product.ngdp_product + ")")
+                          << '\n';
             }
         }
         if (!purchases.unmatched_titles.empty()) {

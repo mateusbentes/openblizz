@@ -1,158 +1,88 @@
-# Scope: what OpenBlizz installs, what it only lists, and where to play the rest
+# Scope: downloads, ownership and launching
 
-OpenBlizz exists to fill one gap: **Battle.net-exclusive games cannot be
-obtained on Linux without the Battle.net desktop app**, which has no Linux
-build. Everything that is also sold on Steam or GOG already runs on Linux
-through Steam's Proton or Heroic/Lutris, so OpenBlizz deliberately does not try
-to replace those stores. This page explains, category by category, what the
-tool does, why some products are listed but not installable, and what to do
-instead. All statements below were checked against the public Ribbit/NGDP
-endpoints; see [IMPLEMENTATION.md](IMPLEMENTATION.md) for the protocol details.
+OpenBlizz provides a Linux CLI for supported Windows builds delivered through Battle.net's public NGDP/TACT/CASC protocols. Its original goal is to install Blizzard games and launch them as non-Steam games through Proton. Steam integration is optional: a terminal command with umu or Wine is enough to attempt a launch.
+
+OpenBlizz also recognizes purchases and can attempt downloads of non-Blizzard NGDP games. **A library entry, a complete downloadable build, and a working game runtime are three different outcomes.** A storefront card is not proof of ownership, and a successful download is not proof of Proton compatibility. OpenBlizz does not replace Steam, GOG, Google Play or the App Store.
 
 ## Summary table
 
-| Category | Examples | `products` | `library scan` | `install` | `launch` | What to do |
-|---|---|---|---|---|---|---|
-| Battle.net exclusives (PC) | Warcraft I/II/III, StarCraft I/II, Diablo II: R / III / IV, Blizzard Arcade Collection, Hearthstone, Heroes of the Storm, Overwatch, World of Warcraft | yes | yes | **yes** (NGDP/TACT) | yes (umu/Proton) | use OpenBlizz |
-| Mobile-origin games, PC build | Diablo Immortal (`anbs`), Warcraft Rumble (`gryphon`), Hearthstone (`hsb`) | yes | yes | **yes** (Windows build) | yes, experimental | use OpenBlizz for the PC version |
-| Mobile builds (APK / IPA) | Diablo Immortal, Rumble, Hearthstone on a phone | no | no | **no** | no | Google Play / App Store; not distributed through NGDP at all |
-| Call of Duty | `odin`, `zeus`, `fore`, `lazr`, `nina`, `auks`, `wlby` | yes (Call of Duty group) | yes | **no** (runtime/content not validated) | no | official Battle.net client, or buy the Steam version |
-| Third-party storefront titles | The Witcher 3: Wild Hunt Remastered and other non-Blizzard games sold on the Battle.net shop | `--shop` plus dynamic storefront cards | purchase mapped by title/slug/appGameCode when matched | **only with a complete supported NGDP build; current `lyra` build is metadata-only** | yes, if installed from elsewhere | buy on Steam/GOG; optionally run through `openblizz launch` |
-| Classic CD-key games | Diablo II (`d2-classic`), Lord of Destruction (`d2-lod`) | yes (legacy installer only) | yes | **no** | yes (`--backend wine` or umu) | legacy installer from the account page, then `launch` |
-| DLC, services, in-game bundles | expansions, battle passes, cosmetics, WoW game time | `--shop` only | purchase shown as unmapped | n/a | n/a | activated inside the game / account, nothing to download separately |
+| Category | Examples | Ownership/catalog | Download | Runtime |
+|---|---|---|---|---|
+| Supported Blizzard NGDP Windows builds | Warcraft I/II/III, StarCraft I/II, Diablo II: Resurrected/III/IV, Blizzard Arcade Collection, WoW, Overwatch, Heroes of the Storm | curated catalog and account scan | existing IN/EN and supported TVFS/CASC pipeline | generic umu/Proton/Wine hand-off; most titles not gameplay-tested |
+| Mobile-origin titles with a PC build | Diablo Immortal (`anbs`), Warcraft Rumble (`gryphon`), Hearthstone (`hsb`) | known PC products | Windows build only | experimental, not a phone runtime |
+| Mobile packages | APK/IPA on phones | not a supported package source | no | Google Play/App Store; outside OpenBlizz |
+| Crash Bandicoot 4 (`wlby`) | non-Blizzard PC game | Third-party Battle.net titles | experimental; public plan verified on 2026-10-10 | not gameplay-tested; online requirements remain |
+| Other third-party NGDP games | known `lyra`, scanned `thirdparty-*` entries | curated or account purchase + matching public card | requires explicit code and usable supported manifests; inspected `lyra` build is metadata-only | not guaranteed |
+| Call of Duty | `odin`, `zeus`, `fore`, `lazr`, `nina`, `auks` | catalog/ownership/metadata | gated: complete content/key/runtime combination not validated | this project does not implement anti-cheat or authentication bypass |
+| Classic CD-key games | Diablo II (`d2-classic`), Lord of Destruction (`d2-lod`) | ownership-only | obtain Blizzard's legacy installer from your account | run installer and game with the same Wine/umu prefix |
+| DLC, services, cosmetic bundles | battle passes, game time, upgrades | known mappings may resolve the base title; otherwise reported unmapped | not promoted to standalone games by generic discovery | activated by the game/account |
 
-## Battle.net exclusives: the reason OpenBlizz exists
+## Blizzard PC builds
 
-These titles are only distributed by Blizzard, through the NGDP protocol
-(Ribbit `summary`/`versions`/`cdns`, TACT build configs, BLTE-encoded content on
-`*.cdn.blizzard.com`). OpenBlizz speaks that protocol directly:
+`install` uses Ribbit build/CDN metadata, TACT configs, IN/EN manifests, BLTE content and archive ranges. If the build has a supported TVFS root, it also populates local CASC storage. A catalog's install command describes downloader support, not a verified launch of every title.
 
 ```bash
-openblizz login                                  # browser window, once
-openblizz library list                           # what you own
-openblizz install w3 --directory ~/Games/Warcraft3 --locale ptBR
-openblizz launch --directory ~/Games/Warcraft3/x86_64 --exe "Warcraft III.exe" \
-  --prefix ~/Games/openblizz/warcraft3 -- -launch
+openblizz login
+openblizz library list
+openblizz install w3 --directory "$HOME/Games/Warcraft3" --locale ptBR
+openblizz launch --directory "$HOME/Games/Warcraft3" \
+  --exe "x86_64/Warcraft III.exe" --prefix "$HOME/Games/openblizz/warcraft3" -- -launch
 ```
 
-Login inside the game uses Blizzard's own in-game login screen (Warcraft III,
-StarCraft: Remastered, Diablo II: Resurrected and the Arcade Collection all
-have one), so the Battle.net app is not needed at runtime either. Pass
-`-launch` to Warcraft III and StarCraft: Remastered to stop them from handing
-over to the Battle.net app.
+The manually verified gameplay path is Warcraft III Legacy/TFT `1.29.2.9232-legacy-tft` with umu-launcher 1.4.4 and GE-Proton10-10. Reforged's installation and Proton hand-off were exercised, but performance/input/embedded-login problems were also reported on the test machine. Reaching `fsync: up and running` alone is not proof that the game opened successfully. See [RUNTIME.md](RUNTIME.md) for the full commands and tested conditions.
 
-Online titles that rely on the Battle.net app for authentication at startup
-(World of Warcraft, Overwatch, Diablo IV, Hearthstone) download fine but may
-not reach their login screen without the app; they are catalogued as
-installable because the content is, and the runtime outcome is reported as
-experimental until verified. Test reports are welcome.
+Reforged uses `-launch` to avoid handing over to the Battle.net desktop app. Games may still require their own in-game login, runtime tokens, registry entries, redistributables or online services. OpenBlizz's browser login establishes the **account-library session**, not an authentication token for the launched Windows game. It does not copy those cookies into the game.
 
-## Mobile-origin games
+## Mobile-origin versus mobile-only games
 
-Diablo Immortal, Warcraft Rumble and Hearthstone started on phones but also
-ship a Windows build through Battle.net. That Windows build is a normal NGDP
-product (for example `anbs` resolves 2,431 files for version 5.1.0.x), so
-OpenBlizz installs it like any other PC game. The phone builds are published on
-Google Play and the App Store, never on NGDP, and are therefore out of reach by
-design — the same is true of the official Battle.net app.
+`anbs`, `gryphon` and `hsb` refer to the Windows builds known to the catalog. The downloader does not fetch Android APKs or iOS IPAs, and installing the native OpenBlizz AArch64 binary does not create an Android environment. An ARM64 Linux host still needs a compatible Proton+FEX/umu stack for Windows x86/x86-64 binaries. Hearthstone also has PC origins; its mobile version is a separate distribution target.
 
-## Call of Duty: on NGDP, but encrypted
+## Third-party Battle.net downloads
 
-Call of Duty titles *are* published through the same Ribbit/NGDP endpoints:
-`openblizz versions auks` and `openblizz cdns auks` work, and the build config
-on the CDN is plain text (`build-name = release_..._cod25_season6_signed_bnet_r_ship`).
-Two things make them non-installable anyway:
+`wlby` is **Crash Bandicoot 4**, not Call of Duty. Its public `containerless ngdp` build resolved 1,123 named files (24,980,571,164 decoded bytes) in the 2026-10-10 plan test. The downloader is enabled experimentally. No complete game download or gameplay test was performed, and its official Windows release requires an Internet connection.
 
-1. The `versions` row carries a **KeyRing** column and the game content is
-   TACT-encrypted. OpenBlizz can now load public KeyRing entries and decode
-   BLTE `E` chunks using Salsa20/ARC4, but the complete Call of Duty content
-   and its required keys/runtime are not validated by this project.
-2. The games require the Battle.net client and the Ricochet anti-cheat at
-   runtime, which do not run under Proton without the official stack.
+For an unknown purchase, `library scan` can match a public `/product/...` storefront card and preserve a stable `thirdparty-*` id. It records the explicit `appGameCode` as `ngdp_product` and the product path as `shop_slug`. A recognized account-owned entry with a usable code can then go through the normal plan/install/update/verify/repair path. A slug-only match stays ownership-only: the installer never guesses a code from the purchase text or slug.
 
-Reproducing the key delivery would mean re-implementing Blizzard's client
-authentication and DRM, which is out of scope for a clean-room project. The
-titles are catalogued under the *Call of Duty* group so that `library list`
-shows them correctly when owned; to play them on Linux, use the Steam version
-(Proton, if the anti-cheat allows it) or the official client on Windows.
+Third-party downloads require account-detected `owned` evidence and a valid saved session; `library add`, an unknown state and `--force` do not replace that requirement. The local library remains a cache of account responses, not a signed entitlement certificate. Curated blocks cannot be bypassed through dynamic aliases.
 
-## Third-party games on the Battle.net shop
+The Witcher 3 Remastered (`lyra`) is recognized by its purchase title, but the public build inspected on 2026-10-10 still has an empty install manifest and placeholder metadata. `plan lyra` rejects it before loading archive indexes. A public KeyRing decrypts the manifest; it does not supply missing named files. The advertised `build-file-db` mapping remains unimplemented and unvalidated.
 
-The Battle.net shop sells some non-Blizzard games (`openblizz products --shop`
-lists them, e.g. The Witcher 3: Wild Hunt Remastered). The current public
-`lyra` entry is a **metadata-only placeholder**: it exposes an empty root, an
-empty install manifest and `client-version = 9.99.99`/`5.00` metadata rather
-than a complete game build. OpenBlizz now has the KeyRing-backed BLTE path
-needed by protected NGDP products, but it must not pretend that an empty
-manifest downloaded a game. `plan lyra` therefore fails explicitly with
-`the current CDN build is metadata-only`.
+See [THIRD_PARTY.md](THIRD_PARTY.md) for commands, dated evidence, sources and offline test coverage. Do not buy more games merely to test the generic downloader: synthetic IN/EN/BLTE fixtures already exercise it. A later live build must still be evaluated individually.
 
-If Blizzard publishes a complete NGDP build for a purchased third-party title,
-the normal `plan`/`install` path can be evaluated then. Until that happens,
-buying The Witcher 3 Remastered on Battle.net does not provide content that
-OpenBlizz can download; the purchase is mapped to `lyra` for honest status
-reporting instead of being silently discarded.
+## Call of Duty
 
-When a transaction title is not in the curated catalog, `library scan` makes a
-conditional public storefront lookup. If the title matches a `/product/` card,
-the scan persists an ownership-only entry in the `Third-party Battle.net
-titles` group. Its stable id is based on the public `appGameCode` when present,
-otherwise on the product slug (for example `thirdparty-example-game`); the
-entry records the storefront path but never payment data. This is metadata
-discovery, not a promise that the product is downloadable. Unmatched DLC,
-services and purchases with no storefront card remain in the unmapped list.
+These products expose public Ribbit/NGDP metadata, but this project has not validated their complete content, keys, authentication and runtime combination. Public KeyRing support is not equivalent to a working installation or anti-cheat compatibility. They remain gated as metadata/ownership entries.
 
-None of these games is a Battle.net exclusive — they are also sold on Steam and
-GOG, where they run on Linux through Steam's Proton, Heroic or Lutris. That is
-the recommended route. If you already have such a game installed from another
-store and want a single launcher, `openblizz launch` is a generic
-umu/Proton/Wine runner and works for any Windows executable:
+OpenBlizz does not recreate private key delivery, remove DRM, bypass a game's authentication or make anti-cheat work under Proton. Buying the Steam version does not by itself fix anti-cheat compatibility either. Use the official supported platform/client if the title cannot run on Linux.
+
+## Games from other stores
+
+A Steam or GOG license is not a Battle.net entitlement, and OpenBlizz does not download from those stores. Steam can provide its own Proton integration; tools such as Heroic or Lutris can manage supported external-store installations. Store availability and Linux compatibility depend on the specific edition and game; not every third-party Battle.net game is sold on every store.
+
+An already installed Windows game may be passed to the generic runner, without any promise that an arbitrary executable will work:
 
 ```bash
 openblizz launch --directory "$HOME/Games/SomeGame" --exe "Game.exe" \
   --prefix "$HOME/Games/openblizz/somegame" --backend umu --proton GE-Proton
 ```
 
-## Classic CD-key games (Diablo II, Lord of Destruction)
+OpenBlizz does not bundle umu, Proton, Wine, DXVK, Steam Runtime or FEX. See [RUNTIME.md](RUNTIME.md#installing-umu-launcher) for installation and [optional Steam integration](RUNTIME.md#optional-adding-a-game-to-steam-steam-deck--big-picture).
 
-`d2-classic` and `d2-lod` are listed by the account page as classic licences
-but are not on NGDP. Download the legacy installer from
-<https://account.battle.net/games> (Blizzard's own download, not redistributed
-by OpenBlizz), then run the installer and the game with the same runner:
+## Classic CD-key games
+
+`d2-classic` and `d2-lod` track the classic licenses rather than a supported NGDP install. Download the official legacy installer from [your account page](https://account.battle.net/games), run it, and launch the installed game using the same prefix:
 
 ```bash
-# 1. run the installer you downloaded (file name as provided by Blizzard)
-openblizz launch --directory ~/Downloads --exe "<installer>.exe" \
-  --prefix ~/Games/openblizz/diablo2 --backend wine
-# 2. run the game from where the installer put it inside the prefix
+# Use the actual installer filename downloaded from Blizzard.
+openblizz launch --directory "$HOME/Downloads" --exe "<installer>.exe" \
+  --prefix "$HOME/Games/openblizz/diablo2" --backend wine
+# Adjust the installed path if you chose a different location.
 openblizz launch --directory "$HOME/Games/openblizz/diablo2/drive_c/Program Files (x86)/Diablo II" \
-  --exe "Game.exe" --prefix ~/Games/openblizz/diablo2 --backend wine
+  --exe "Game.exe" --prefix "$HOME/Games/openblizz/diablo2" --backend wine
 ```
 
-## The runtime stack: umu, Proton, Wine
+OpenBlizz neither downloads nor redistributes those legacy installers. A CD-key prompt, where required, belongs to the official installer/game, not the OpenBlizz terminal.
 
-Every installed game is a Windows build; the runtime is provided by tools
-OpenBlizz does **not** bundle:
+## Reporting a classification problem
 
-| Layer | Provided by | Installed how |
-|---|---|---|
-| Steam Runtime container (pressure-vessel) | [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher) | distribution package, zipapp, `.deb`/`.rpm` or Flatpak — see [RUNTIME.md](RUNTIME.md#installing-umu-launcher) |
-| Proton (Wine + DXVK + vkd3d) | GE-Proton, UMU-Proton or any Proton directory | auto-downloaded by umu on first use (`--proton GE-Proton`, the default) |
-| Plain Wine | your distribution's `wine` / `wine-staging` | `--backend wine` |
-| x86-64 on ARM64 | Proton ARM64 + FEX | separate install, see [RUNTIME.md](RUNTIME.md#linux-aarch64-openblizz-versus-protonfex) |
-
-`openblizz launch` sets `WINEPREFIX`, `PROTONPATH` and `GAMEID` for the
-Proton/umu backends, `WINEPREFIX` for Wine, and runs the executable directly
-for the native backend. Steam itself is not required; when you *do* want the
-game inside Steam (Steam Deck, Big Picture, controller layouts), add
-`openblizz` as a non-Steam game with the `launch ...` arguments as launch
-options and leave Steam's compatibility setting off, as described in
-[RUNTIME.md](RUNTIME.md#optional-adding-a-game-to-steam-steam-deck--big-picture).
-
-## Reporting a wrong classification
-
-If a game you own shows up in the wrong group, or `products --all` lists an
-NGDP code under "Other Battle.net products" that you can identify, open an
-issue with the output of `openblizz library list` and
-`openblizz library scan --dump /tmp/scan.json` (remove personal data first).
-The classification lives in `src/catalog.cpp` and is easy to extend.
+Report the product id, redacted library evidence and relevant `plan` output. The curated classifications live in `src/catalog.cpp`. `library scan --dump PATH` writes raw account/purchase responses with owner-only permissions; it can contain sensitive data. Redact it before sharing and never attach session cookies, passwords, payment information or license keys. Public protocol references are in [SOURCES.md](../SOURCES.md).

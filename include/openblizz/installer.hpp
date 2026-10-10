@@ -49,6 +49,8 @@ private:
     [[nodiscard]] std::filesystem::path cache_path(const std::string& hash) const;
     [[nodiscard]] std::filesystem::path index_cache_path(const std::string& hash) const;
     [[nodiscard]] std::vector<std::uint8_t> archive_index_bytes(const CdnInfo& cdn, const std::string& hash) const;
+    [[nodiscard]] std::unordered_map<std::string, ArchiveLocation> archive_entries(
+        const CdnInfo& cdn, const ConfigFile& config) const;
     [[nodiscard]] std::vector<std::uint8_t> fetch_encoded(const CdnInfo& cdn,
                                                           const std::unordered_map<std::string, ArchiveLocation>& archives,
                                                           const std::string& encoding_key) const;

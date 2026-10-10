@@ -1,19 +1,31 @@
 # OpenBlizz
 
 OpenBlizz is an independent, clean-room command-line client for Linux that
-downloads, installs, updates, verifies, repairs and launches (through
-Proton/umu or Wine) the Blizzard games you own — without the Battle.net
-desktop app. It speaks the public NGDP/TACT/CASC protocols directly, logs you
-in through your own browser on the official Battle.net page, and reads your
-library from your own account page.
+downloads, installs, updates, verifies and repairs supported Windows builds
+delivered through Blizzard's public NGDP/TACT/CASC protocols. It launches
+installed builds through Proton/umu or Wine, without the Battle.net desktop
+app. It speaks those public protocols directly, logs you in through your own
+browser on the official Battle.net page, and reads your library from your own
+account page. It can also list products and retain metadata-only or
+ownership-only entries when a complete supported build is unavailable; those
+entries are not install targets.
 
 Warcraft III: Reforged is the reference product (full CASC data install);
 the catalog also covers Warcraft I/II Remastered, StarCraft: Remastered,
 StarCraft II, Diablo (Immortal, II: Resurrected, III, IV), World of Warcraft,
 Blizzard Arcade Collection, Hearthstone, Heroes of the Storm, Overwatch and
-known third-party Battle.net metadata such as The Witcher 3: Wild Hunt
-Remastered (`lyra`). Any other NGDP product attached to your account is
-recognised as well.
+non-Blizzard NGDP titles such as Crash Bandicoot 4 (`wlby`, experimental) and
+The Witcher 3: Wild Hunt Remastered (`lyra`, inspected build metadata-only).
+Account-owned dynamic entries with an explicit storefront `appGameCode` can
+use the normal downloader when supported complete manifests exist. Unmapped,
+slug-only and unsupported entries remain metadata/ownership-only.
+
+The goal is the broadest supported account-owned PC download coverage, not
+a separate downloader or fixed whitelist for every third-party publisher.
+IN/EN manifests can be fetched as loose objects or resolved by EKey from CDN
+archives when the loose request fails. See the
+[coverage policy and validation levels](docs/THIRD_PARTY.md#coverage-policy-protocol-support-not-a-fixed-game-whitelist)
+for the exact formats and remaining limits; a valid plan is not a gameplay test.
 
 OpenBlizz is not affiliated with or endorsed by Blizzard Entertainment. It
 does not distribute Battle.net, Agent.exe, game files, private keys or any
@@ -106,6 +118,7 @@ for the distinction and the explicit `--proton` example.
 |---|---|
 | [docs/BUILDING.md](docs/BUILDING.md) | dependencies and build commands for Debian/Ubuntu, Fedora/RHEL, Arch, SteamOS, openSUSE, Alpine, Void, Gentoo, Nix, Solus, macOS and Windows; install, dev and sanitizer builds; packaging notes |
 | [docs/SCOPE.md](docs/SCOPE.md) | what is installable and what is only listed (Battle.net exclusives, mobile-origin PC builds, Call of Duty, third-party shop titles, classic CD-key games) and where to play the rest; the umu/Proton/Wine runtime stack |
+| [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md) | experimental third-party downloads, Crash 4, dynamic NGDP ids, account requirements, current lyra limitation and offline integration tests |
 | [docs/COMMANDS.md](docs/COMMANDS.md) | every command and option: `products`, `versions`, `cdns`, `plan`, `vfs`, `login`, `logout`, `library`, `install`, `update`, `verify`, `repair`, `launch`; exit codes; typical workflow |
 | [docs/RUNTIME.md](docs/RUNTIME.md) | running games: installing umu per distribution, choosing a Proton build, Warcraft III specifics, adding the game to Steam / Steam Deck, `.desktop` launcher, performance variables |
 | [docs/FILES.md](docs/FILES.md) | where everything lives (cookie jar, browser profile, library.json, cache), the game directory layout, environment variables, network endpoints contacted |
@@ -127,7 +140,8 @@ CASC storage, so `install` mounts the TVFS
 object through CDN archives with HTTP Range requests and writes
 `Data/data/*.idx` + `Data/data/data.NNN`, `Data/config`, `Data/indices` and
 `.build.info` — the same layout the official installer produces. Downloads
-resume, `verify --deep` re-hashes every stored CASC object, and `repair`
+resume, `verify --deep` re-hashes every CASC object referenced by the current plan,
+and `repair`
 re-downloads install files that fail their hash check plus CASC objects that
 are missing or have a size mismatch.
 
@@ -149,10 +163,13 @@ hours) reads the same internal JSON the account page uses:
 purchase-history entitlements such as Warcraft I/II Remastered and the
 Blizzard Arcade Collection). When a transaction is not in the curated catalog,
 the scan also checks public storefront cards and can persist a dynamic
-ownership-only `thirdparty-*` entry using the title, product slug and
-`appGameCode`. `install` refuses products marked `not owned` unless `--force`
-is given; dynamic entries still require a real NGDP manifest before they can be
-considered installable. These endpoints are not a documented API and may
+`thirdparty-*` entry with explicit `ngdp_product` and `shop_slug` fields.
+When the card provides a usable NGDP code, the account-owned entry can go
+through the downloader; slug-only entries remain ownership-only.
+Third-party downloads require account-detected `owned` evidence: manual
+entries, `unknown` and `--force` do not replace it. The older curated Blizzard
+policy still warns on unknown ownership and allows `--force` for `not owned`.
+These endpoints are not a documented API and may
 change; OpenBlizz labels their output accordingly rather than pretending they
 are stable.
 
@@ -178,7 +195,8 @@ with the evidence for each entry.
 | `wow`, `wow_classic`, `gryphon` | World of Warcraft, Classic, Warcraft Rumble (PC build) | yes | `gryphon`: Windows build only |
 | `rtro` | Blizzard Arcade Collection | yes | ownership via purchase history; installable NGDP product |
 | `hsb`, `hero`, `pro` | Hearthstone (PC build), Heroes of the Storm, Overwatch | yes | |
-| `lyra` | The Witcher 3: Wild Hunt Remastered | metadata-only currently | purchase mapping and public NGDP inspection; current build has an empty install manifest |
+| `wlby` | Crash Bandicoot 4: It's About Time | experimental | public plan verified: 1,123 files; full download/gameplay not tested |
+| `lyra` | The Witcher 3: Wild Hunt Remastered | metadata-only currently | purchase mapping and public NGDP inspection; current public metadata exposes an empty install manifest |
 | `d2-classic`, `d2-lod` | Diablo II, Lord of Destruction | no (legacy installer) | ownership tracked only |
 
 "Install" means OpenBlizz can download the build through NGDP; whether a
@@ -198,18 +216,19 @@ breakdown, including Call of Duty and third-party shop titles, is in
   glibc binaries; other architectures should build from source until matching
   Release assets are added.
 - Ownership comes from undocumented account-page endpoints; a Blizzard change
-  can break `library scan` until the parser is updated (installing with
-  `--force` keeps working).
+  can break `library scan` until the parser is updated. `--force` is not a
+  substitute for a valid account session or account-owned third-party license.
 - Call of Duty titles are on NGDP (`versions`/`cdns` work), but their complete
-  content/key/runtime combination is not validated and they require the
-  Battle.net client and anti-cheat. They remain metadata-only. The current
-  third-party `lyra` build is also metadata-only; `plan lyra` rejects its empty
+  content/key/authentication/runtime combination and anti-cheat compatibility
+  are not validated. They remain metadata-only. The
+  public `lyra` build inspected on 2026-10-10 is also metadata-only; `plan lyra` rejects its empty
   install manifest instead of claiming success.
 - BLTE `E` chunks are now decoded when the referenced public KeyRing entry is
   available (Salsa20 and ARC4). Missing keys, incomplete manifests and
   unsupported product runtimes still fail explicitly; OpenBlizz does not ship
   private keys or proprietary game assets.
-- Only the Windows x86_64 build of each product is selected.
+- Install-manifest selection uses Windows/Release/locale tags when present;
+  architecture is not independently filtered. Some legacy executables are x86.
 - No GUI, no game-side patching (umu/Proton fixes apply as usual).
 
 ## License and trademarks

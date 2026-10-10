@@ -18,8 +18,7 @@ used as protocol and format references:
 - Salsa20 specification (public primitive reference): https://cr.yp.to/snuffle/spec.pdf
 - ARC4 test vectors and specification reference: https://www.rfc-editor.org/rfc/rfc6229
 - Community API discussion on owned-game discovery (Jan 2025): https://us.forums.blizzard.com/en/blizzard/t/fetching-a-users-owned-games/53759
-- galaxy-integration-blizzard (MIT), reference for the account web endpoints, `titleId` mapping and `gameAccountStatus` semantics: https://github.com/FriendsOfGalaxy/galaxy-integration-blizzard
-- Public JavaScript of https://account.battle.net/games (endpoint paths `/api/games-and-subs`, `/api/classic-games`, `X-XSRF-TOKEN` usage)
+- galaxy-integration-blizzard (MIT), reference for the account response shape, `titleId` mapping and `gameAccountStatus` semantics: https://github.com/FriendsOfGalaxy/galaxy-integration-blizzard
 
 No source code from Battle.Net-Installer is included in this repository.
 
@@ -29,13 +28,40 @@ entitlement, installer, or download endpoint. OpenBlizz does not claim that
 the public developer catalog is an account inventory; its separate account-web
 provider uses the user's own browser session against the account site's
 undocumented JSON endpoints.
-The `account-web` library provider uses `account.battle.net/api/games-and-subs`
-and `/api/classic-games` with the user's own browser session cookies. These
-endpoints are not documented for third parties (see the discussion above); the
-provider is automatic after browser login but labelled experimental, and only
-the response shape and the public `titleId` table were taken from the
-MIT-licensed reference, not code.
-Known `titleId` values: 21297 = StarCraft, 22323 = Warcraft III.
-- Battle.net titleId = FourCC of the program code (observed on the account's own games-and-subs response: 22323 "W3", 21297 "S1", 21298 "S2", 5730135 "WoW", 1095647827 "ANBS"; corroborated by the MIT-licensed galaxy-integration-blizzard TITLE_ID_MAP).
-- account.battle.net front-end bundle (public JavaScript): `TransactionsService` (`/api/transactions?regionId=N`, `/api/transactions/{orderId}/{invoiceId}`, fields `purchases[].productTitle`, `giftClaims[]`, `lineItems[].productTitle`) and `MyGamesService` (`/api/games-and-subs`, `/api/classic-games`, `/api/time-gated-games`, `/api/external-subs`). Observed 2026-10-02; undocumented, may change.
-- us.shop.battle.net home page (public Next.js flight payload): product cards with `productPageName`, `slug`, `franchise`, `appGameCode`, `cmsId`; `/api/user-browsing-cards` (POST, logged-in eligibility), `/api/user-wishlist`. Observed 2026-10-02.
+
+## Account-page JSON observations (not a public API)
+
+OpenBlizz uses the authenticated browser session for these account JSON
+endpoints:
+
+- `https://account.battle.net/api/games-and-subs` — game accounts; `titleId` is
+  the big-endian FourCC of the NGDP product code.
+- `https://account.battle.net/api/classic-games` — classic CD-key records.
+- `https://account.battle.net/api/transactions?regionId=1` (and the same path
+  with `regionId=2` and `regionId=3`) — purchase history used for entitlement
+  mapping.
+
+These responses are observations from the account page rather than a stable
+third-party contract. Observed `titleId` values include `22323` (`W3`), `21297`
+(`S1`), `21298` (`S2`), `5730135` (`WoW`) and `1095647827` (`ANBS`); the
+response shape and public mapping table were corroborated by the MIT-licensed
+reference above, not copied from it.
+
+The Netscape cookie jar used for these requests is a **bearer credential**:
+protect it like a credential and never attach it to a bug report. `library scan --dump` writes raw account JSON responses and may contain sensitive account and
+purchase data; redact it before sharing.
+
+## Third-party download observations (2026-10-10)
+
+The public `wlby` product config identifies Crash Bandicoot 4 and containerless
+NGDP, not Call of Duty. The public plan resolved 1,123 named install files;
+gameplay and its online runtime were not tested. The selected public `lyra`
+build still has an empty install manifest, despite its readable public
+KeyRing. Sources, dates and exact limits are collected in
+[docs/THIRD_PARTY.md](docs/THIRD_PARTY.md).
+
+The generic download resolver and offline integration tests use this project's
+existing IN/EN/BLTE parsers, public metadata observations and synthetic content.
+No Battle.Net-Installer or cascette source was used for this change. No game
+files, live account responses, session cookies or private keys are included in
+the test fixtures.

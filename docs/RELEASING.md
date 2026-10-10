@@ -80,9 +80,16 @@ These are OpenBlizz client binaries. They are not Proton, FEX, Steam Runtime,
 or game binaries. Running Windows x86/x86-64 games on ARM64 remains dependent
 on the user's separately installed ARM64 Proton+FEX/umu stack.
 
+`SHA256SUMS` is an index, not a separately verified payload. The checksum
+guarantee is for the selected architecture's exact entry: the installer must
+find a valid digest for that exact binary name and compare the downloaded binary
+with it; it does not validate the checksum file as one whole-file payload or
+require unrelated entries to match.
+
 Do not replace the checksum with an unsigned download or a checksum hosted on
-another domain. The script fails closed if `SHA256SUMS` is missing, malformed,
-or does not match the downloaded binary.
+another domain. The script fails closed if `SHA256SUMS` is missing, the selected
+asset has no valid exact-name entry, or that entry does not match the downloaded
+binary.
 
 ## Adding another architecture
 
