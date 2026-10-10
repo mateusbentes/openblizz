@@ -54,7 +54,8 @@ private:
                                                           const std::string& encoding_key) const;
     [[nodiscard]] std::vector<std::uint8_t> content(const CdnInfo& cdn,
                                                     const std::unordered_map<std::string, ArchiveLocation>& archives,
-                                                    const std::string& encoding_key) const;
+                                                    const std::string& encoding_key,
+                                                    const KeyRing& keyring = {}) const;
     [[nodiscard]] bool install_one(const InstallPlan& plan, const InstallEntry& entry,
                                    const std::filesystem::path& directory) const;
     void select_data_objects(InstallPlan& plan, const EncodingIndex& encoding,

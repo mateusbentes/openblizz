@@ -83,6 +83,7 @@ inline std::string family_label(const std::string& family) {
     if (family == "hearthstone") return "Hearthstone";
     if (family == "heroes") return "Heroes of the Storm";
     if (family == "callofduty") return "Call of Duty";
+    if (family == "thirdparty") return "Third-party Battle.net titles";
     if (family == "ngdp" || family.empty()) return "Other Battle.net products";
     std::string label = family;
     label[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(label[0])));

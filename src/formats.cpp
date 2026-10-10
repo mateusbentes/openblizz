@@ -5,6 +5,8 @@
 #include <zlib.h>
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <cstring>
 #include <limits>
 #include <sstream>
@@ -87,8 +89,100 @@ std::vector<std::uint8_t> decompress_zlib(const std::uint8_t* bytes, std::size_t
     throw std::runtime_error("BLTE zlib output exceeds safety limit");
 }
 
+std::uint32_t rotate_left(const std::uint32_t value, const int bits) {
+    return (value << bits) | (value >> (32 - bits));
+}
+
+std::uint32_t load_le32(const std::uint8_t* bytes) {
+    return static_cast<std::uint32_t>(bytes[0]) |
+           (static_cast<std::uint32_t>(bytes[1]) << 8) |
+           (static_cast<std::uint32_t>(bytes[2]) << 16) |
+           (static_cast<std::uint32_t>(bytes[3]) << 24);
+}
+
+void salsa20_xor(std::vector<std::uint8_t>& data, const std::vector<std::uint8_t>& key,
+                 const std::uint8_t* iv, const std::size_t iv_size, const std::size_t block_index) {
+    if (key.size() != 16) throw std::runtime_error("BLTE Salsa20 key must be 16 bytes");
+    if (iv_size != 4 && iv_size != 8) throw std::runtime_error("BLTE Salsa20 IV must be 4 or 8 bytes");
+
+    std::array<std::uint8_t, 8> nonce{};
+    std::copy_n(iv, iv_size, nonce.begin());
+    const auto block = static_cast<std::uint32_t>(block_index);
+    for (std::size_t i = 0; i < 4; ++i) {
+        nonce[i] ^= static_cast<std::uint8_t>((block >> (8 * i)) & 0xffu);
+    }
+
+    std::array<std::uint32_t, 16> state{};
+    state[0] = 0x61707865u;  // "expa"
+    state[5] = 0x3120646eu;  // "nd 1"
+    state[10] = 0x79622d36u; // "6-by"
+    state[15] = 0x6b206574u; // "te k"
+    for (std::size_t i = 0; i < 4; ++i) {
+        state[1 + i] = load_le32(key.data() + 4 * i);
+        state[11 + i] = state[1 + i];
+    }
+    state[6] = load_le32(nonce.data());
+    state[7] = load_le32(nonce.data() + 4);
+    state[8] = 0;
+    state[9] = 0;
+
+    std::size_t position = 0;
+    while (position < data.size()) {
+        auto working = state;
+        const auto quarter_round = [&](const std::size_t a, const std::size_t b,
+                                       const std::size_t c, const std::size_t d) {
+            working[b] ^= rotate_left(working[a] + working[d], 7);
+            working[c] ^= rotate_left(working[b] + working[a], 9);
+            working[d] ^= rotate_left(working[c] + working[b], 13);
+            working[a] ^= rotate_left(working[d] + working[c], 18);
+        };
+        for (int round = 0; round < 10; ++round) {
+            quarter_round(0, 4, 8, 12);
+            quarter_round(5, 9, 13, 1);
+            quarter_round(10, 14, 2, 6);
+            quarter_round(15, 3, 7, 11);
+            quarter_round(0, 1, 2, 3);
+            quarter_round(5, 6, 7, 4);
+            quarter_round(10, 11, 8, 9);
+            quarter_round(15, 12, 13, 14);
+        }
+
+        const auto available = std::min<std::size_t>(64, data.size() - position);
+        for (std::size_t i = 0; i < available; ++i) {
+            const auto word = working[i / 4] + state[i / 4];
+            const auto stream_byte = static_cast<std::uint8_t>((word >> (8 * (i % 4))) & 0xffu);
+            data[position + i] ^= stream_byte;
+        }
+        position += available;
+        state[8]++;
+        if (state[8] == 0) ++state[9];
+    }
+}
+
+void arc4_xor(std::vector<std::uint8_t>& data, const std::vector<std::uint8_t>& key) {
+    if (key.empty() || key.size() > 256) throw std::runtime_error("BLTE ARC4 key has invalid size");
+    std::array<std::uint8_t, 256> state{};
+    for (std::size_t i = 0; i < state.size(); ++i) state[i] = static_cast<std::uint8_t>(i);
+    std::size_t j = 0;
+    for (std::size_t i = 0; i < state.size(); ++i) {
+        j = (j + state[i] + key[i % key.size()]) & 0xffu;
+        std::swap(state[i], state[j]);
+    }
+    std::size_t i = 0;
+    j = 0;
+    for (auto& byte : data) {
+        i = (i + 1) & 0xffu;
+        j = (j + state[i]) & 0xffu;
+        std::swap(state[i], state[j]);
+        const auto stream = state[(state[i] + state[j]) & 0xffu];
+        byte ^= stream;
+    }
+}
+
 std::vector<std::uint8_t> decode_chunk(const std::uint8_t* bytes, std::size_t size,
-                                       std::size_t expected) {
+                                       std::size_t expected, const KeyRing& keyring,
+                                       const std::size_t block_index, const std::size_t depth) {
+    if (depth > 2) throw std::runtime_error("nested BLTE encryption is too deep");
     if (size == 0) throw std::runtime_error("empty BLTE chunk");
     const char mode = static_cast<char>(bytes[0]);
     const auto* payload = bytes + 1;
@@ -122,7 +216,34 @@ std::vector<std::uint8_t> decode_chunk(const std::uint8_t* bytes, std::size_t si
         throw std::runtime_error("BLTE frame mode is not yet supported");
     }
     if (mode == 'E') {
-        throw std::runtime_error("encrypted BLTE content requires a user-provided keyring");
+        if (keyring.empty()) throw std::runtime_error("encrypted BLTE content has no KeyRing entry");
+        if (payload_size < 1) throw std::runtime_error("encrypted BLTE chunk is missing its key name size");
+        std::size_t offset = 0;
+        const auto key_name_size = static_cast<std::size_t>(payload[offset++]);
+        if (key_name_size == 0 || payload_size - offset < key_name_size + 1) {
+            throw std::runtime_error("encrypted BLTE chunk has a truncated key name");
+        }
+        const auto key_name = hex_bytes(payload + offset, key_name_size);
+        offset += key_name_size;
+        const auto iv_size = static_cast<std::size_t>(payload[offset++]);
+        if (iv_size != 4 && iv_size != 8) throw std::runtime_error("encrypted BLTE IV must be 4 or 8 bytes");
+        if (payload_size - offset < iv_size + 1) throw std::runtime_error("encrypted BLTE chunk has a truncated IV");
+        const auto* iv = payload + offset;
+        offset += iv_size;
+        const auto encryption_type = payload[offset++];
+        const auto key = keyring.find(key_name);
+        if (key == keyring.end()) throw std::runtime_error("BLTE encryption key not found: " + key_name);
+        std::vector<std::uint8_t> decrypted(payload + offset, payload + payload_size);
+        if (encryption_type == 'S') {
+            salsa20_xor(decrypted, key->second, iv, iv_size, block_index);
+        } else if (encryption_type == 'A') {
+            arc4_xor(decrypted, key->second);
+        } else {
+            throw std::runtime_error("unsupported BLTE encryption type");
+        }
+        if (decrypted.empty()) throw std::runtime_error("encrypted BLTE chunk has no inner payload");
+        if (decrypted[0] == 'E') throw std::runtime_error("nested encrypted BLTE chunks are not supported");
+        return decode_chunk(decrypted.data(), decrypted.size(), expected, keyring, block_index, depth + 1);
     }
     throw std::runtime_error(std::string("unsupported BLTE chunk mode: ") + mode);
 }
@@ -170,7 +291,29 @@ ConfigFile parse_config(const std::string& text) {
     return config;
 }
 
+KeyRing parse_keyring(const ConfigFile& config) {
+    KeyRing result;
+    for (const auto& [name, values] : config.values) {
+        if (name.rfind("key-", 0) != 0) continue;
+        auto key_id = name.substr(4);
+        std::transform(key_id.begin(), key_id.end(), key_id.begin(), [](const unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        });
+        if (!is_hex_hash(key_id, 8) || values.size() != 1 || !is_hex_hash(values.front(), 16)) {
+            throw std::runtime_error("invalid KeyRing entry: " + name);
+        }
+        result.emplace(key_id, hex_to_bytes(values.front()));
+    }
+    return result;
+}
+
 std::vector<std::uint8_t> BlteDecoder::decode(const std::vector<std::uint8_t>& encoded) {
+    static const KeyRing empty_keyring;
+    return decode(encoded, empty_keyring);
+}
+
+std::vector<std::uint8_t> BlteDecoder::decode(const std::vector<std::uint8_t>& encoded,
+                                              const KeyRing& keyring) {
     ensure_available(encoded, 0, 8, "BLTE preamble");
     if (std::string(reinterpret_cast<const char*>(encoded.data()), 4) != "BLTE") {
         throw std::runtime_error("invalid BLTE magic");
@@ -179,7 +322,8 @@ std::vector<std::uint8_t> BlteDecoder::decode(const std::vector<std::uint8_t>& e
     std::vector<std::uint8_t> output;
 
     if (header_size == 0) {
-        const auto decoded = decode_chunk(encoded.data() + 8, encoded.size() - 8, encoded.size() - 8);
+        const auto decoded = decode_chunk(encoded.data() + 8, encoded.size() - 8, encoded.size() - 8,
+                                          keyring, 0, 0);
         output.insert(output.end(), decoded.begin(), decoded.end());
         return output;
     }
@@ -206,9 +350,11 @@ std::vector<std::uint8_t> BlteDecoder::decode(const std::vector<std::uint8_t>& e
     }
 
     std::size_t data_offset = header_size;
-    for (const auto& chunk : chunks) {
+    for (std::size_t chunk_index = 0; chunk_index < chunks.size(); ++chunk_index) {
+        const auto& chunk = chunks[chunk_index];
         ensure_available(encoded, data_offset, chunk.compressed, "BLTE chunk");
-        auto decoded = decode_chunk(encoded.data() + data_offset, chunk.compressed, chunk.decoded);
+        auto decoded = decode_chunk(encoded.data() + data_offset, chunk.compressed, chunk.decoded,
+                                    keyring, chunk_index, 0);
         if (decoded.size() != chunk.decoded) {
             throw std::runtime_error("BLTE decoded size mismatch");
         }

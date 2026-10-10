@@ -12,10 +12,13 @@ namespace openblizz {
 [[nodiscard]] std::vector<std::string> split(const std::string& value, char delimiter);
 [[nodiscard]] std::string trim(std::string value);
 [[nodiscard]] ConfigFile parse_config(const std::string& text);
+[[nodiscard]] KeyRing parse_keyring(const ConfigFile& config);
 
 class BlteDecoder {
 public:
     [[nodiscard]] static std::vector<std::uint8_t> decode(const std::vector<std::uint8_t>& encoded);
+    [[nodiscard]] static std::vector<std::uint8_t> decode(const std::vector<std::uint8_t>& encoded,
+                                                           const KeyRing& keyring);
 };
 
 [[nodiscard]] InstallManifest parse_install_manifest(const std::vector<std::uint8_t>& decoded);

@@ -53,31 +53,31 @@ openblizz products --shop [--family SLUG]
 
 | Mode | Source | Shows |
 |---|---|---|
-| (default) | built-in curated catalog | the Blizzard titles OpenBlizz knows how to handle, grouped by franchise (Warcraft, StarCraft, Diablo, Blizzard Arcade, Hearthstone, Heroes of the Storm, Overwatch), with the install command for each. Classic CD-key titles (Diablo II, LoD) are shown as "legacy installer only" |
+| (default) | built-in curated catalog | the Blizzard titles OpenBlizz knows how to handle, plus known Battle.net third-party metadata, grouped by franchise (Warcraft, StarCraft, Diablo, Blizzard Arcade, Hearthstone, Heroes of the Storm, Overwatch and third-party titles), with the install command for each. Classic CD-key titles (Diablo II, LoD) are shown as "legacy installer only" |
 | `--all` | Ribbit `v2/summary` | every published summary row without a non-empty `Flags` field, with columns `Product code`, `Account titleId`, and `Ribbit seqn`; many are PTR/beta/internal codes |
-| `--shop` | Battle.net storefront navigation menu | storefront games exposed by the current navigation/family pages (Blizzard, Call of Duty and third-party titles), with a `Library` column cross-referenced against your scanned library and the matching OpenBlizz id when installable |
+| `--shop` | Battle.net storefront navigation menu | storefront games exposed by the current navigation/family pages (Blizzard, Call of Duty and third-party titles), with a `Library` column cross-referenced against your scanned library and the matching OpenBlizz id when known |
 | `--shop --family SLUG` | one storefront family page | the editions/bundles of that family (`warcraft-rts`, `starcraft-remastered`, `diablo-iv`, `blizzard-arcade-collection`, ...). Slugs are printed by `--shop` |
 
 The shop request currently uses the US storefront (`us.shop.battle.net/en-us`);
 there is no `--region` selector for `--shop` yet.
 
-Call of Duty and third-party products are listed for completeness but **cannot
-be installed** by OpenBlizz, for two different reasons:
+Call of Duty and third-party products need separate status checks; being listed
+does not mean that the current build contains downloadable game data:
 
 - **Call of Duty** (`odin`, `zeus`, `fore`, `lazr`, `nina`, `auks`, `wlby`, ...)
   *is* published through Ribbit/NGDP: `versions`, `cdns` and the build config
-  are public and readable. However the `versions` row carries a **KeyRing** and
-  the game content is TACT-encrypted with keys that only the Battle.net client
-  receives after an entitlement check; the games also require that client and
-  its anti-cheat at runtime. OpenBlizz therefore catalogues them under the
-  *Call of Duty* franchise for ownership and metadata only, and `plan`/`install`
-  stop with an explicit message instead of downloading undecryptable data.
+  are public and readable. OpenBlizz can decode BLTE `E` chunks when a public
+  KeyRing entry is present, but the complete content/key/runtime combination
+  is not validated for Call of Duty. The games also require the Battle.net
+  client and anti-cheat, so they remain metadata-only and `plan`/`install` are
+  intentionally gated by the catalog.
   Implementing this would mean reproducing Blizzard's key delivery and the
   Battle.net client's runtime, which is out of scope for a clean-room project.
-- **Third-party storefront titles** (The Witcher 3 Remastered and similar) only
-  have *placeholder* NGDP entries (empty root, a 39-byte install manifest): the
-  actual game is not delivered through the Blizzard CDN at all, so there is
-  nothing OpenBlizz could download.
+- **Third-party storefront titles** (The Witcher 3 Remastered and similar) are
+  mapped to known ids when possible. The current `lyra` NGDP build is a
+  metadata-only placeholder with an empty install manifest. `plan lyra` fails
+  explicitly instead of reporting a successful zero-file install. If a future
+  build exposes real install data, its normal NGDP plan can be tested then.
 
 See [SCOPE.md](SCOPE.md) for the full category breakdown and the recommended
 way to play each kind of title on Linux.

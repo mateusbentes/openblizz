@@ -10,8 +10,10 @@ library from your own account page.
 Warcraft III: Reforged is the reference product (full CASC data install);
 the catalog also covers Warcraft I/II Remastered, StarCraft: Remastered,
 StarCraft II, Diablo (Immortal, II: Resurrected, III, IV), World of Warcraft,
-Blizzard Arcade Collection, Hearthstone, Heroes of the Storm and Overwatch.
-Any other NGDP product attached to your account is recognised as well.
+Blizzard Arcade Collection, Hearthstone, Heroes of the Storm, Overwatch and
+known third-party Battle.net metadata such as The Witcher 3: Wild Hunt
+Remastered (`lyra`). Any other NGDP product attached to your account is
+recognised as well.
 
 OpenBlizz is not affiliated with or endorsed by Blizzard Entertainment. It
 does not distribute Battle.net, Agent.exe, game files, private keys or any
@@ -153,7 +155,7 @@ labels their output accordingly rather than pretending they are stable.
 Blizzard Arcade, Hearthstone, Heroes of the Storm, Overwatch, Other) in aligned
 tables. `products` shows the curated catalog, `products --all` every NGDP code,
 `products --shop` the storefront entries exposed by the current navigation and
-family pages (including Call of Duty and third-party titles, which are listed but cannot be installed — see
+family pages (including Call of Duty and third-party titles, whose installability depends on the current NGDP build — see
 [docs/COMMANDS.md](docs/COMMANDS.md#openblizz-products)), `library list` what you own
 with the evidence for each entry.
 
@@ -170,6 +172,7 @@ with the evidence for each entry.
 | `wow`, `wow_classic`, `gryphon` | World of Warcraft, Classic, Warcraft Rumble (PC build) | yes | `gryphon`: Windows build only |
 | `rtro` | Blizzard Arcade Collection | yes | ownership via purchase history; installable NGDP product |
 | `hsb`, `hero`, `pro` | Hearthstone (PC build), Heroes of the Storm, Overwatch | yes | |
+| `lyra` | The Witcher 3: Wild Hunt Remastered | metadata-only currently | purchase mapping and public NGDP inspection; current build has an empty install manifest |
 | `d2-classic`, `d2-lod` | Diablo II, Lord of Destruction | no (legacy installer) | ownership tracked only |
 
 "Install" means OpenBlizz can download the build through NGDP; whether a
@@ -191,12 +194,15 @@ breakdown, including Call of Duty and third-party shop titles, is in
 - Ownership comes from undocumented account-page endpoints; a Blizzard change
   can break `library scan` until the parser is updated (installing with
   `--force` keeps working).
-- Call of Duty titles are on NGDP (`versions`/`cdns` work) but their content is
-  TACT-encrypted with keys only the Battle.net client receives, and they need
-  that client at runtime; third-party storefront titles have placeholder NGDP
-  entries only. Neither can be installed by OpenBlizz.
-- Encrypted TACT content (some products' protected files) fails with an
-  explicit error instead of being decrypted.
+- Call of Duty titles are on NGDP (`versions`/`cdns` work), but their complete
+  content/key/runtime combination is not validated and they require the
+  Battle.net client and anti-cheat. They remain metadata-only. The current
+  third-party `lyra` build is also metadata-only; `plan lyra` rejects its empty
+  install manifest instead of claiming success.
+- BLTE `E` chunks are now decoded when the referenced public KeyRing entry is
+  available (Salsa20 and ARC4). Missing keys, incomplete manifests and
+  unsupported product runtimes still fail explicitly; OpenBlizz does not ship
+  private keys or proprietary game assets.
 - Only the Windows x86_64 build of each product is selected.
 - No GUI, no game-side patching (umu/Proton fixes apply as usual).
 

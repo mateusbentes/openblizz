@@ -40,8 +40,12 @@ before a download is declared failed.
 ## Format layer
 
 - **BPSV** (`Name!TYPE:len|...`) for Ribbit and `.build.info`.
-- **BLTE** with the `N` (raw), `Z` (zlib) and `4` (LZ4) chunk modes; encrypted
-  (`E`) chunks fail with an explicit capability error.
+- **BLTE** with the `N` (raw), `Z` (zlib) and `4` (LZ4) chunk modes. `E` chunks
+  are decoded when their public KeyRing entry is available: the implementation
+  parses the key/IV/type header, applies the CASC Salsa20 variant (4- or 8-byte
+  IV with the chunk index mixed into the first four IV bytes) or ARC4, then
+  decodes the inner compression marker. Missing keys and nested encryption fail
+  explicitly; OpenBlizz does not invent or ship private Blizzard keys.
 - **Encoding** (`EN`): content key → encoding key(s) and encoded sizes.
 - **Install** (`IN`) and **Download** (`DL`) manifest parsers. Installer tag
   selection currently uses Windows, locale and Release tags; `x86_64` is build
@@ -54,7 +58,7 @@ before a download is declared failed.
 
 ## Content layer
 
-`Installer::plan` resolves build config → CDN config → encoding → install
+`Installer::plan` resolves build config → CDN config → optional KeyRing → encoding → install
 manifest → archive indexes (cached under `$XDG_CACHE_HOME/openblizz`) and, when
 the build has a TVFS root, the whole virtual file system filtered to `enUS`
 plus the requested locale. The download-manifest parser exists, but the
@@ -107,7 +111,9 @@ commands; account auto-refresh currently uses the default cookie jar.
 `/product/...` cards) and family pages so the storefront entries exposed by
 those pages, including third-party titles, are visible and cross-referenced
 with the library. The result depends on what the storefront publishes to the
-current page payload.
+current page payload. The known third-party product `lyra` is mapped from its
+purchase title, but its current public build has an empty install manifest and
+is rejected as metadata-only rather than reported as a successful install.
 
 These account endpoints are not part of Blizzard's documented developer API
 and may change; the code isolates them in `library.cpp` and labels their
@@ -126,7 +132,7 @@ verbatim; the exact command is printed so it can be reused in Steam shortcuts.
 ## Testing
 
 `ctest` runs `openblizz_tests`: BPSV/config parsing, representative BLTE raw
-chunk fixtures, encoding and archive-index lookups, TVFS parsing/resolution,
+and encrypted Salsa20 fixtures, encoding and archive-index lookups, TVFS parsing/resolution,
 CASC journal round-trips and salvage, FourCC decoding, account JSON parsers,
 shop menu/family parsers, cookie-jar handling and table rendering. The tests
 are plain `assert()` based and need no network; HttpClient networking,

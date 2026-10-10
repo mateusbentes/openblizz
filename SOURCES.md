@@ -15,6 +15,8 @@ used as protocol and format references:
 - CASC overview: https://wowdev.wiki/CASC
 - TVFS format documentation: https://wowdev.wiki/TVFS
 - BLTE format documentation: https://wowdev.wiki/BLTE
+- Salsa20 specification (public primitive reference): https://cr.yp.to/snuffle/spec.pdf
+- ARC4 test vectors and specification reference: https://www.rfc-editor.org/rfc/rfc6229
 - Community API discussion on owned-game discovery (Jan 2025): https://us.forums.blizzard.com/en/blizzard/t/fetching-a-users-owned-games/53759
 - galaxy-integration-blizzard (MIT), reference for the account web endpoints, `titleId` mapping and `gameAccountStatus` semantics: https://github.com/FriendsOfGalaxy/galaxy-integration-blizzard
 - Public JavaScript of https://account.battle.net/games (endpoint paths `/api/games-and-subs`, `/api/classic-games`, `X-XSRF-TOKEN` usage)

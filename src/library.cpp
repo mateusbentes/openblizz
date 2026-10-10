@@ -354,7 +354,7 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& purchase_ti
         {"overwatch", {"pro"}},
         {"hearthstone", {"hsb"}},
         {"heroesofthestorm", {"hero"}},
-        {"blizzardarcadecollection", {"rtro"}},
+        {"thewitcher3wildhuntremastered", {"lyra"}},
         {"crashbandicoot4", {"wlby"}},
     };
     return table;
@@ -763,6 +763,7 @@ std::vector<std::string> LibraryManager::shop_destination_products(const std::st
         {"/product/warcraft-2-battle-net-edition", {"w2bn"}},
         {"/product/starcraft-remastered", {"s1"}},
         {"/product/diablo_ii_resurrected", {"osi"}},
+        {"/product/the-witcher-3-wild-hunt-remastered", {"lyra"}},
         {"/product/blizzard-arcade-collection", {"rtro"}},
         {"/family/starcraft-remastered", {"s1"}},
         {"/family/starcraft-ii", {"s2"}},

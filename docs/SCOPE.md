@@ -16,8 +16,8 @@ endpoints; see [IMPLEMENTATION.md](IMPLEMENTATION.md) for the protocol details.
 | Battle.net exclusives (PC) | Warcraft I/II/III, StarCraft I/II, Diablo II: R / III / IV, Blizzard Arcade Collection, Hearthstone, Heroes of the Storm, Overwatch, World of Warcraft | yes | yes | **yes** (NGDP/TACT) | yes (umu/Proton) | use OpenBlizz |
 | Mobile-origin games, PC build | Diablo Immortal (`anbs`), Warcraft Rumble (`gryphon`), Hearthstone (`hsb`) | yes | yes | **yes** (Windows build) | yes, experimental | use OpenBlizz for the PC version |
 | Mobile builds (APK / IPA) | Diablo Immortal, Rumble, Hearthstone on a phone | no | no | **no** | no | Google Play / App Store; not distributed through NGDP at all |
-| Call of Duty | `odin`, `zeus`, `fore`, `lazr`, `nina`, `auks`, `wlby` | yes (Call of Duty group) | yes | **no** (TACT-encrypted, KeyRing) | no | official Battle.net client, or buy the Steam version |
-| Third-party storefront titles | The Witcher 3: Wild Hunt Remastered and other non-Blizzard games sold on the Battle.net shop | `--shop` only | purchase shown as unmapped | **no** (placeholder NGDP entries) | yes, if installed from elsewhere | buy on Steam/GOG; optionally run through `openblizz launch` |
+| Call of Duty | `odin`, `zeus`, `fore`, `lazr`, `nina`, `auks`, `wlby` | yes (Call of Duty group) | yes | **no** (runtime/content not validated) | no | official Battle.net client, or buy the Steam version |
+| Third-party storefront titles | The Witcher 3: Wild Hunt Remastered and other non-Blizzard games sold on the Battle.net shop | `--shop` and `lyra` metadata | purchase mapped when the title matches | **not yet for the current placeholder build** | yes, if installed from elsewhere | buy on Steam/GOG; optionally run through `openblizz launch` |
 | Classic CD-key games | Diablo II (`d2-classic`), Lord of Destruction (`d2-lod`) | yes (legacy installer only) | yes | **no** | yes (`--backend wine` or umu) | legacy installer from the account page, then `launch` |
 | DLC, services, in-game bundles | expansions, battle passes, cosmetics, WoW game time | `--shop` only | purchase shown as unmapped | n/a | n/a | activated inside the game / account, nothing to download separately |
 
@@ -64,10 +64,9 @@ on the CDN is plain text (`build-name = release_..._cod25_season6_signed_bnet_r_
 Two things make them non-installable anyway:
 
 1. The `versions` row carries a **KeyRing** column and the game content is
-   TACT-encrypted with keys that only the Battle.net client receives after an
-   entitlement check. OpenBlizz could download the encrypted blobs, but it
-   cannot decrypt them, so `plan`/`install` refuse early with an explicit
-   message instead of filling your disk with unusable data.
+   TACT-encrypted. OpenBlizz can now load public KeyRing entries and decode
+   BLTE `E` chunks using Salsa20/ARC4, but the complete Call of Duty content
+   and its required keys/runtime are not validated by this project.
 2. The games require the Battle.net client and the Ricochet anti-cheat at
    runtime, which do not run under Proton without the official stack.
 
@@ -80,12 +79,19 @@ shows them correctly when owned; to play them on Linux, use the Steam version
 ## Third-party games on the Battle.net shop
 
 The Battle.net shop sells some non-Blizzard games (`openblizz products --shop`
-lists them, e.g. The Witcher 3: Wild Hunt Remastered). Their NGDP entries are
-**placeholders**: an empty root (`root = 00000000000000000000000000000000`), a
-39-byte install manifest and `client-version = 9.99.99`. The actual game data is
-not delivered through the Blizzard CDN, so there is nothing OpenBlizz could
-download, and such a purchase appears under `Purchases not mapped to an
-installable product` after `library scan`.
+lists them, e.g. The Witcher 3: Wild Hunt Remastered). The current public
+`lyra` entry is a **metadata-only placeholder**: it exposes an empty root, an
+empty install manifest and `client-version = 9.99.99`/`5.00` metadata rather
+than a complete game build. OpenBlizz now has the KeyRing-backed BLTE path
+needed by protected NGDP products, but it must not pretend that an empty
+manifest downloaded a game. `plan lyra` therefore fails explicitly with
+`the current CDN build is metadata-only`.
+
+If Blizzard publishes a complete NGDP build for a purchased third-party title,
+the normal `plan`/`install` path can be evaluated then. Until that happens,
+buying The Witcher 3 Remastered on Battle.net does not provide content that
+OpenBlizz can download; the purchase is mapped to `lyra` for honest status
+reporting instead of being silently discarded.
 
 None of these games is a Battle.net exclusive — they are also sold on Steam and
 GOG, where they run on Linux through Steam's Proton, Heroic or Lutris. That is

@@ -60,9 +60,9 @@ std::vector<std::string> split_hosts(const std::string& value) {
 }
 
 const char* const kCodReason =
-    "Call of Duty content on the NGDP CDN is TACT-encrypted with keys that only the Battle.net client "
-    "receives after an entitlement check, and the game needs that client and its anti-cheat at runtime. "
-    "OpenBlizz can show its versions/cdns and ownership but cannot install or launch it.";
+    "Call of Duty content uses TACT-encrypted builds and the public KeyRing is not sufficient to validate "
+    "the complete game; the game also needs the Battle.net client and its anti-cheat at runtime. "
+    "OpenBlizz keeps these products metadata-only and does not install or launch them.";
 
 } // namespace
 
@@ -91,6 +91,7 @@ std::vector<ProductDescriptor> Catalog::products() const {
         {"pro", "Overwatch", "overwatch", "pro", true},
         {"hsb", "Hearthstone (PC build)", "hearthstone", "hsb", true},
         {"hero", "Heroes of the Storm", "heroes", "hero", true},
+        {"lyra", "The Witcher 3: Wild Hunt Remastered", "thirdparty", "lyra", true},
         // Classic CD-key titles still listed by the account page. They are not
         // distributed through NGDP, so they are catalogued for ownership only.
         {"d2-classic", "Diablo II (classic, legacy installer)", "diablo", "", false},
@@ -241,6 +242,11 @@ std::vector<std::uint8_t> Catalog::fetch_data(const CdnInfo& cdn, const std::str
 
 std::vector<std::uint8_t> Catalog::fetch_decoded_data(const CdnInfo& cdn, const std::string& hash) const {
     return BlteDecoder::decode(fetch_data(cdn, hash));
+}
+
+std::vector<std::uint8_t> Catalog::fetch_decoded_data(const CdnInfo& cdn, const std::string& hash,
+                                                     const KeyRing& keyring) const {
+    return BlteDecoder::decode(fetch_data(cdn, hash), keyring);
 }
 
 std::vector<std::uint8_t> Catalog::fetch_archive_index(const CdnInfo& cdn,

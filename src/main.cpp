@@ -274,7 +274,9 @@ int main(int argc, char** argv) {
                     std::cout << ob::family_label(product.family) << '\n';
                 }
                 std::string install_cell = "openblizz install " + product.id;
-                if (!product.supported) {
+                if (product.id == "lyra") {
+                    install_cell = "metadata-only (current CDN build)";
+                } else if (!product.supported) {
                     install_cell = product.family == "callofduty"
                         ? "not installable (encrypted content, needs Battle.net client)"
                         : "legacy installer only (ownership tracked)";

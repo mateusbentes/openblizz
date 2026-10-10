@@ -42,6 +42,9 @@ public:
                                                        const std::string& hash) const;
     [[nodiscard]] std::vector<std::uint8_t> fetch_decoded_data(const CdnInfo& cdn,
                                                                const std::string& hash) const;
+    [[nodiscard]] std::vector<std::uint8_t> fetch_decoded_data(const CdnInfo& cdn,
+                                                               const std::string& hash,
+                                                               const KeyRing& keyring) const;
     [[nodiscard]] std::vector<std::uint8_t> fetch_archive_index(const CdnInfo& cdn,
                                                                 const std::string& hash) const;
     [[nodiscard]] std::vector<std::uint8_t> fetch_archive_range(const CdnInfo& cdn,

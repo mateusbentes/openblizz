@@ -72,6 +72,10 @@ struct VersionInfo {
     std::string product_config;
 };
 
+// Public TACT/NGDP keyring entries. The key is the hexadecimal key identifier
+// carried by a BLTE E chunk; the value is the raw stream-cipher key.
+using KeyRing = std::unordered_map<std::string, std::vector<std::uint8_t>>;
+
 struct CdnInfo {
     std::string product;
     std::string region;
@@ -200,6 +204,7 @@ struct BuildContext {
     ProductDescriptor product;
     VersionInfo version;
     CdnInfo cdn;
+    KeyRing keyring;
     ConfigFile build_config;
     ConfigFile cdn_config;
     std::vector<std::uint8_t> build_config_bytes;
@@ -223,6 +228,7 @@ struct InstallPlan {
     ProductDescriptor product;
     VersionInfo version;
     CdnInfo cdn;
+    KeyRing keyring;
     ConfigFile build_config;
     ConfigFile cdn_config;
     std::vector<std::uint8_t> build_config_bytes;

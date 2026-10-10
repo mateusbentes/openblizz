@@ -181,6 +181,11 @@ BuildContext Installer::context(const std::string& product, const std::string& r
     result.version = catalog_.version(product, region);
     result.cdn = catalog_.select_cdn(product, region);
 
+    if (!result.version.keyring.empty()) {
+        const auto keyring_bytes = catalog_.fetch_config(result.cdn, result.version.keyring);
+        result.keyring = parse_keyring(parse_config(std::string(
+            reinterpret_cast<const char*>(keyring_bytes.data()), keyring_bytes.size())));
+    }
     result.build_config_bytes = catalog_.fetch_config(result.cdn, result.version.build_config);
     result.cdn_config_bytes = catalog_.fetch_config(result.cdn, result.version.cdn_config);
     result.build_config = parse_config(std::string(reinterpret_cast<const char*>(result.build_config_bytes.data()),
@@ -196,13 +201,15 @@ std::vector<VfsFile> Installer::vfs_files(const BuildContext& context) const {
     // is latency bound, so warm the cache with a few parallel workers first.
     const auto refs = vfs_manifest_refs(context.build_config);
     run_parallel(8, refs.size(), [&](std::size_t index) {
-        if (!refs[index].encoding_key.empty()) (void)content(context.cdn, no_archives, refs[index].encoding_key);
+        if (!refs[index].encoding_key.empty()) {
+            (void)content(context.cdn, no_archives, refs[index].encoding_key, context.keyring);
+        }
     });
     return VfsResolver::resolve(context.build_config, [&](const VfsManifestRef& ref) {
         if (ref.encoding_key.empty()) {
             throw std::runtime_error("manifest " + ref.name + " has no encoding key in the build config");
         }
-        auto decoded = content(context.cdn, no_archives, ref.encoding_key);
+        auto decoded = content(context.cdn, no_archives, ref.encoding_key, context.keyring);
         if (md5_hex(decoded) != ref.content_key) {
             std::error_code error;
             std::filesystem::remove(cache_path(ref.encoding_key), error);
@@ -334,6 +341,7 @@ InstallPlan Installer::plan(const std::string& product, const std::string& regio
         result.product = std::move(base.product);
         result.version = std::move(base.version);
         result.cdn = std::move(base.cdn);
+        result.keyring = std::move(base.keyring);
         result.build_config = std::move(base.build_config);
         result.cdn_config = std::move(base.cdn_config);
         result.build_config_bytes = std::move(base.build_config_bytes);
@@ -366,10 +374,13 @@ InstallPlan Installer::plan(const std::string& product, const std::string& regio
         throw std::runtime_error("product " + product + " has no encoding manifest in the current build");
     }
 
-    const auto install_decoded = catalog_.fetch_decoded_data(result.cdn, install_pair->encoding_key);
+    const auto install_decoded = catalog_.fetch_decoded_data(result.cdn, install_pair->encoding_key, result.keyring);
     result.install_manifest = parse_install_manifest(install_decoded);
+    if (result.install_manifest.entries.empty()) {
+        throw std::runtime_error("product " + product + " has an empty install manifest; the current CDN build is metadata-only");
+    }
 
-    const auto encoding_decoded = catalog_.fetch_decoded_data(result.cdn, encoding_pair->encoding_key);
+    const auto encoding_decoded = catalog_.fetch_decoded_data(result.cdn, encoding_pair->encoding_key, result.keyring);
     const auto encoding = EncodingIndex::parse(encoding_decoded);
     result.mappings = encoding.mappings();
     result.selected_entries = select_entries(result.install_manifest, locale);
@@ -423,10 +434,10 @@ std::vector<std::uint8_t> Installer::fetch_encoded(
 
 std::vector<std::uint8_t> Installer::content(
     const CdnInfo& cdn, const std::unordered_map<std::string, ArchiveLocation>& archives,
-    const std::string& encoding_key) const {
+    const std::string& encoding_key, const KeyRing& keyring) const {
     const auto path = cache_path(encoding_key);
     if (std::filesystem::exists(path)) return read_file(path);
-    const auto decoded = BlteDecoder::decode(fetch_encoded(cdn, archives, encoding_key));
+    const auto decoded = BlteDecoder::decode(fetch_encoded(cdn, archives, encoding_key), keyring);
     write_atomic(path, decoded);
     return decoded;
 }
@@ -457,7 +468,7 @@ bool Installer::install_one(const InstallPlan& plan, const InstallEntry& entry,
     bool found = false;
     for (const auto& encoding_key : encoding_keys) {
         try {
-            auto candidate = content(plan.cdn, plan.archive_entries, encoding_key);
+            auto candidate = content(plan.cdn, plan.archive_entries, encoding_key, plan.keyring);
             if (candidate.size() == entry.file_size && md5_hex(candidate) == entry.content_key) {
                 data = std::move(candidate);
                 found = true;

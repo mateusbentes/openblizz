@@ -163,6 +163,22 @@ int main() {
     assert(config.get("root").size() == 2);
     assert(config.get("name").front() == "Warcraft");
 
+    const auto keyring = openblizz::parse_keyring(openblizz::parse_config(
+        "key-0011223344556677 = 00112233445566778899aabbccddeeff\n"));
+    assert(keyring.size() == 1);
+    const auto encrypted = openblizz::hex_to_bytes(
+        "424c5445000000240f00000100000029000000182cb0e1a35a4c7b5d6d66c0e6b6a8b35b"
+        "45080011223344556677040102030453f782272bfd9eb7dee502470f4f27c7ec6886fc23e674fa3524");
+    const std::string encrypted_plain = "openblizz encrypted test";
+    assert(openblizz::BlteDecoder::decode(encrypted, keyring) ==
+           std::vector<std::uint8_t>(encrypted_plain.begin(), encrypted_plain.end()));
+    const auto encrypted_arc4 = openblizz::hex_to_bytes(
+        "424c5445000000240f0000010000002400000013b59994660c0378d31c4ff50aaa8f055745"
+        "080011223344556677040102030441cb3ade34a60704eb9b2bc04be12019b47da0e024");
+    const std::string arc4_plain = "arc4 encrypted test";
+    assert(openblizz::BlteDecoder::decode(encrypted_arc4, keyring) ==
+           std::vector<std::uint8_t>(arc4_plain.begin(), arc4_plain.end()));
+
     const std::vector<std::uint8_t> install{
         'I','N',1,16, 0,1, 0,0,0,1,
         'e','n','U','S',0, 0,1, 0x80,
@@ -294,6 +310,7 @@ int main() {
             {"w1r", "Warcraft I: Remastered", "warcraft", "w1r", true},
             {"w2r", "Warcraft II: Remastered", "warcraft", "w2r", true},
             {"s1", "StarCraft: Remastered", "starcraft", "s1", true},
+            {"lyra", "The Witcher 3: Wild Hunt Remastered", "thirdparty", "lyra", true},
         };
         const auto r = openblizz::LibraryManager::parse_account_web(
             R"({"gameAccounts":[{"titleId":22323,"gameAccountStatus":"Good"}]})", R"({"classicGames":[]})", all);
@@ -305,9 +322,10 @@ int main() {
                               {"productTitle":"Warcraft\u00ae I & II: Remastered Battle Chest","localizedStatus":"Refunded"},
                               {"productTitle":"The Witcher 3: Wild Hunt - Remastered","status":1}],
                  "giftClaims":[]})"}, all);
-        assert(purchases.records.size() == 1);
+        assert(purchases.records.size() == 2);
         assert(purchases.records[0].product_id == "w1r" && purchases.records[0].owned);
-        assert(purchases.unmatched_titles.size() == 1);
+        assert(purchases.records[1].product_id == "lyra" && purchases.records[1].owned);
+        assert(purchases.unmatched_titles.empty());
         const auto cards = openblizz::LibraryManager::parse_shop_cards(
             "<script>self.__next_f.push([1,\"x\\\"productPageName\\\":\\\"The Witcher 3 \\\",\\\"slug\\\":\\\"the-witcher-3\\\",\\\"franchise\\\":\\\"Witcher\\\",\\\"appGameCode\\\":\\\"\\\"\"])</script>");
         assert(cards.size() == 1 && cards[0].name == "The Witcher 3" && cards[0].slug == "the-witcher-3");
