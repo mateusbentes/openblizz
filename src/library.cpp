@@ -140,6 +140,7 @@ std::vector<LibraryEntry> LibraryManager::load(const std::filesystem::path& path
         entry.source = item.value("source", std::string{});
         entry.reason = item.value("reason", std::string{});
         entry.updated_at = item.value("updated_at", std::int64_t{0});
+        entry.family = item.value("family", std::string{});
         result.push_back(std::move(entry));
     }
     return result;
@@ -159,6 +160,7 @@ void LibraryManager::save(const std::filesystem::path& path,
             {"source", entry.source},
             {"reason", entry.reason},
             {"updated_at", entry.updated_at},
+            {"family", entry.family},
         });
     }
 
@@ -200,7 +202,9 @@ bool LibraryManager::auto_refresh(const Catalog& catalog, const std::filesystem:
     const auto entries = load(library_path);
     std::int64_t newest = 0;
     for (const auto& entry : entries) {
-        if (entry.source == "account-web") newest = std::max(newest, entry.updated_at);
+        if (entry.source == "account-web" || entry.source == "account-purchases") {
+            newest = std::max(newest, entry.updated_at);
+        }
     }
     if (newest != 0 && now_seconds() - newest < max_age_seconds) return false;
 
@@ -594,10 +598,50 @@ AccountWebResult LibraryManager::parse_account_web(const std::string& games_and_
     return result;
 }
 
+namespace {
+
+bool is_shop_product(const LibraryManager::ShopCard& card) {
+    return card.slug.rfind("/product/", 0) == 0;
+}
+
+std::string shop_product_id(const LibraryManager::ShopCard& card) {
+    std::string source = card.app_game_code;
+    if (source.empty()) {
+        source = card.slug.substr(card.slug.rfind('/') + 1);
+    }
+    std::string id;
+    for (const auto ch : lower(source)) {
+        if (std::isalnum(static_cast<unsigned char>(ch))) id.push_back(ch);
+        else if (id.empty() || id.back() != '-') id.push_back('-');
+    }
+    while (!id.empty() && id.back() == '-') id.pop_back();
+    return id.empty() ? std::string{} : "thirdparty-" + id;
+}
+
+const LibraryManager::ShopCard* match_shop_purchase(
+    const std::string& title, const std::vector<LibraryManager::ShopCard>& cards) {
+    const auto normalized = normalize_title(title);
+    for (const auto& card : cards) {
+        if (!is_shop_product(card)) continue;
+        const auto card_name = normalize_title(card.name);
+        const auto slug = normalize_title(card.slug.substr(card.slug.rfind('/') + 1));
+        if ((card_name.size() >= 6 && (normalized.find(card_name) != std::string::npos ||
+                                       card_name.find(normalized) != std::string::npos)) ||
+            (slug.size() >= 8 && normalized.find(slug) != std::string::npos)) {
+            return &card;
+        }
+    }
+    return nullptr;
+}
+
+} // namespace
+
 LibraryManager::PurchaseResult LibraryManager::parse_purchases(
-    const std::vector<std::string>& transaction_bodies, const std::vector<ProductDescriptor>& products) {
+    const std::vector<std::string>& transaction_bodies, const std::vector<ProductDescriptor>& products,
+    const std::vector<ShopCard>& shop_cards) {
     PurchaseResult result;
     std::set<std::string> seen_titles;
+    std::set<std::string> seen_dynamic;
     for (const auto& body : transaction_bodies) {
         if (body.empty()) continue;
         const auto document = json::parse(body, nullptr, false, true);
@@ -655,6 +699,28 @@ LibraryManager::PurchaseResult LibraryManager::parse_purchases(
                             result.records.push_back({product.id, true, true, "account-purchases",
                                                       "purchase \"" + title + "\""});
                             matched = true;
+                        }
+                    }
+                }
+                if (!matched) {
+                    if (const auto* card = match_shop_purchase(title, shop_cards)) {
+                        const auto known_ids = shop_destination_products(card->slug);
+                        for (const auto& product_id : known_ids) {
+                            if (!product_in_catalog(products, product_id)) continue;
+                            result.records.push_back({product_id, true, true, "account-purchases",
+                                                      "purchase \"" + title + "\" via storefront " + card->slug});
+                            matched = true;
+                        }
+                        if (!matched) {
+                            const auto dynamic_id = shop_product_id(*card);
+                            if (!dynamic_id.empty() && seen_dynamic.insert(dynamic_id).second) {
+                                std::string reason = "purchase \"" + title + "\"; storefront " + card->slug;
+                                if (!card->app_game_code.empty()) reason += "; appGameCode " + card->app_game_code;
+                                result.dynamic_products.push_back(
+                                    {dynamic_id, card->name.empty() ? title : card->name, "thirdparty", reason});
+                                result.records.push_back({dynamic_id, true, true, "account-purchases", reason});
+                            }
+                            matched = !dynamic_id.empty();
                         }
                     }
                 }
@@ -724,7 +790,8 @@ std::vector<LibraryManager::ShopCard> LibraryManager::parse_shop_games(const std
         const auto end = flight.find('}', pos);
         if (end == std::string::npos) break;
         const auto segment = flight.substr(pos, end - pos);
-        ShopCard card{json_field(segment, "text"), json_field(segment, "destination"), json_field(segment, "category"), ""};
+        ShopCard card{json_field(segment, "text"), json_field(segment, "destination"),
+                      json_field(segment, "category"), json_field(segment, "appGameCode")};
         trim_right(card.name);
         if (card.name.empty() || card.slug.empty() || card.franchise.empty()) continue;
         if (card.slug.rfind("/family/", 0) != 0 && card.slug.rfind("/product/", 0) != 0) continue;
@@ -890,10 +957,6 @@ int LibraryManager::scan(const Catalog& catalog, const std::filesystem::path& pa
             if (is_json(tx)) transaction_bodies.push_back(response_text(tx));
             else if (region_id == 1) std::cerr << "Warning: transactions query returned HTTP " << tx.status << '\n';
         }
-        if (!session.cookie_jar.empty()) {
-            browser.save_jar(session.cookie_jar.string());
-            if (!options.quiet) std::cout << "Updated session cookies saved with owner-only permissions at " << session.cookie_jar << '\n';
-        }
         if (!options.dump_path.empty()) {
             json dump;
             dump["games_and_subs"] = json::parse(games_body, nullptr, false, true);
@@ -913,7 +976,47 @@ int LibraryManager::scan(const Catalog& catalog, const std::filesystem::path& pa
             products = catalog.products();
         }
         auto web = parse_account_web(games_body, classic_body, products);
-        const auto purchases = parse_purchases(transaction_bodies, products);
+        auto purchases = parse_purchases(transaction_bodies, products);
+        if (!purchases.unmatched_titles.empty()) {
+            // Transactions expose a localized title, while the public shop
+            // carries the stable slug/appGameCode. Use the shop only for the
+            // unmatched cases so ordinary scans do not depend on storefront
+            // availability and no payment data is retained.
+            try {
+                std::vector<ShopCard> shop_cards;
+                std::set<std::string> seen_shop_cards;
+                const auto append_cards = [&](const std::vector<ShopCard>& cards) {
+                    for (const auto& card : cards) {
+                        const auto key = card.name + "\n" + card.slug + "\n" + card.app_game_code;
+                        if (seen_shop_cards.insert(key).second) shop_cards.push_back(card);
+                    }
+                };
+                const auto shop_root = browser.get("https://us.shop.battle.net/en-us",
+                                                   {"Accept: text/html"});
+                if (shop_root.status == 200 && !shop_root.body.empty()) {
+                    const std::string html(shop_root.body.begin(), shop_root.body.end());
+                    append_cards(parse_shop_cards(html));
+                    const auto games = parse_shop_games(html);
+                    append_cards(games);
+                    std::set<std::string> family_pages;
+                    for (const auto& game : games) {
+                        if (game.slug.rfind("/family/", 0) != 0 || !family_pages.insert(game.slug).second) continue;
+                        const auto family = browser.get("https://us.shop.battle.net/en-us" + game.slug,
+                                                         {"Accept: text/html"});
+                        if (family.status != 200 || family.body.empty()) continue;
+                        const std::string family_html(family.body.begin(), family.body.end());
+                        append_cards(parse_shop_family(family_html));
+                    }
+                    purchases = parse_purchases(transaction_bodies, products, shop_cards);
+                }
+            } catch (const std::exception& error) {
+                if (!options.quiet) std::cerr << "Warning: storefront metadata lookup failed: " << error.what() << '\n';
+            }
+        }
+        if (!session.cookie_jar.empty()) {
+            browser.save_jar(session.cookie_jar.string());
+            if (!options.quiet) std::cout << "Updated session cookies saved with owner-only permissions at " << session.cookie_jar << '\n';
+        }
         // Purchases prove ownership; they take precedence over a not_owned
         // derived from games-and-subs absence.
         for (const auto& record : purchases.records) {
@@ -922,11 +1025,29 @@ int LibraryManager::scan(const Catalog& catalog, const std::filesystem::path& pa
                               web.records.end());
             web.records.push_back(record);
         }
+        for (const auto& dynamic : purchases.dynamic_products) {
+            const auto existing = std::find_if(entries.begin(), entries.end(), [&](const LibraryEntry& entry) {
+                return entry.product_id == dynamic.product_id;
+            });
+            if (existing == entries.end()) {
+                entries.push_back({dynamic.product_id, dynamic.name, OwnershipState::Owned,
+                                   "account-purchases", dynamic.reason, now_seconds(), dynamic.family});
+            } else if (!dynamic.name.empty()) {
+                existing->name = dynamic.name;
+                existing->family = dynamic.family;
+            }
+        }
         apply_records(entries, web.records, "account-web");
         save(path, entries);
         if (options.quiet) return 0;
         std::cout << "Recognized account entries: " << web.records.size()
                   << " (purchases matched: " << purchases.records.size() << ")\n";
+        if (!purchases.dynamic_products.empty()) {
+            std::cout << "Dynamically mapped third-party purchases (ownership detected; installability unverified):\n";
+            for (const auto& product : purchases.dynamic_products) {
+                std::cout << "  " << product.product_id << "\t" << product.name << '\n';
+            }
+        }
         if (!purchases.unmatched_titles.empty()) {
             std::cout << "Purchases not mapped to an installable product (DLC, services, third-party titles):\n";
             for (const auto& title : purchases.unmatched_titles) std::cout << "  " << title << '\n';

@@ -10,7 +10,7 @@ notes below.
 |---|---|---|---|---|
 | `$XDG_CONFIG_HOME/openblizz/battlenet-cookies.txt` (default `~/.config/openblizz/battlenet-cookies.txt`) | `0600` | Netscape-format `battle.net` session jar captured by `login`; renewal may update it during account-library refresh, including when an explicit `--cookie-jar` path is used | `login` | `logout` |
 | `$XDG_CONFIG_HOME/openblizz/browser-profile/` | `0700` | isolated browser profile used only for the login window (no history or passwords from your normal profile). For snap/flatpak browsers the profile is placed inside the directory the sandbox can reach (`~/snap/<name>/common/openblizz-profile`, `~/.var/app/<id>/openblizz-profile`) | `login` | you may delete it any time |
-| `$XDG_STATE_HOME/openblizz/library.json` (default `~/.local/state/openblizz/library.json`) | `0600` | JSON schema 1 with `products[]` records containing `product_id`, `name`, `ownership`, `source`, `reason`, and `updated_at` | `login`, `library scan`, `library add/remove`, and stale-session auto-refresh from account-dependent commands | `library remove` or delete the file |
+| `$XDG_STATE_HOME/openblizz/library.json` (default `~/.local/state/openblizz/library.json`) | `0600` | JSON schema 1 with `products[]` records containing `product_id`, `name`, `ownership`, `source`, `reason`, `updated_at` and optional `family`; dynamic storefront purchases use family `thirdparty` and retain only public product metadata | `login`, `library scan`, `library add/remove`, and stale-session auto-refresh from account-dependent commands | `library remove` or delete the file |
 | `$XDG_CACHE_HOME/openblizz/` (default `~/.cache/openblizz/`) | umask-dependent | decoded content objects under `objects/` and archive indexes under `indices/`, keyed by hash; safe to delete and re-downloaded on demand | `plan`, `vfs`, `install`, `update`, `verify`, `repair` | delete freely |
 
 Override them with `--cookie-jar PATH`, `--library-file PATH`,
@@ -73,7 +73,7 @@ settings).
 | `{region}.version.battle.net` (Ribbit over HTTPS, `/v2/summary`, `/v2/products/<p>/versions`, `/cdns`) | product catalog, builds, CDN hosts | none |
 | `*.cdn.blizzard.com`, `level3.blizzard.com`, `blzddist1-a.akamaihd.net`, ... | TACT content (configs, archives, loose objects) | none |
 | `account.battle.net`, `{eu,us,kr,tw}.account.battle.net`, `oauth.battle.net` | browser login redirect chain, session renewal, `/api/games-and-subs`, `/api/classic-games`, `/api/transactions` | your browser session cookies |
-| `https://us.shop.battle.net/en-us` | `products --shop` storefront menu and family pages (currently hard-coded to the US storefront) | none |
+| `https://us.shop.battle.net/en-us` and its `/family/<slug>` pages | `products --shop` storefront menu and, only when purchases are unmatched, dynamic third-party metadata lookup (currently hard-coded to the US storefront) | none / browser session cookies may be sent but no payment data is read |
 
 OpenBlizz makes no direct telemetry requests and does not use the Battle.net
 desktop app, Agent, or Blizzard's public/developer OAuth API. Browser login and

@@ -243,10 +243,13 @@ int main() {
     openblizz::LibraryManager::save(library_path, {
         {"w3", "Warcraft III: Reforged", openblizz::OwnershipState::Manual,
          "manual", "test", 1},
+        {"thirdparty-example-game", "Example Game", openblizz::OwnershipState::Owned,
+         "account-purchases", "storefront /product/example-game", 2, "thirdparty"},
     });
     const auto loaded = openblizz::LibraryManager::load(library_path);
-    assert(loaded.size() == 1);
+    assert(loaded.size() == 2);
     assert(loaded.front().ownership == openblizz::OwnershipState::Manual);
+    assert(loaded.back().family == "thirdparty");
     std::filesystem::remove(library_path);
 
     const std::vector<openblizz::ProductDescriptor> web_products{
@@ -329,6 +332,21 @@ int main() {
         const auto cards = openblizz::LibraryManager::parse_shop_cards(
             "<script>self.__next_f.push([1,\"x\\\"productPageName\\\":\\\"The Witcher 3 \\\",\\\"slug\\\":\\\"the-witcher-3\\\",\\\"franchise\\\":\\\"Witcher\\\",\\\"appGameCode\\\":\\\"\\\"\"])</script>");
         assert(cards.size() == 1 && cards[0].name == "The Witcher 3" && cards[0].slug == "the-witcher-3");
+    }
+    {
+        const std::vector<openblizz::ProductDescriptor> products{
+            {"w3", "Warcraft III: Reforged", "warcraft", "w3", true},
+        };
+        const auto purchases = openblizz::LibraryManager::parse_purchases(
+            {R"({"purchases":[{"productTitle":"Example Game Deluxe Edition","status":7}],"giftClaims":[]})"},
+            products,
+            {openblizz::LibraryManager::ShopCard{
+                "Example Game", "/product/example-game", "Example", "EXG"}});
+        assert(purchases.records.size() == 1);
+        assert(purchases.records[0].product_id == "thirdparty-exg" && purchases.records[0].owned);
+        assert(purchases.dynamic_products.size() == 1);
+        assert(purchases.dynamic_products[0].name == "Example Game");
+        assert(purchases.unmatched_titles.empty());
     }
 
 

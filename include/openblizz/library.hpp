@@ -65,24 +65,38 @@ public:
 
 
     // Parse the account.battle.net "games-and-subs" and "classic-games" JSON.
-    // Purchase history (account.battle.net /api/transactions). Each purchase
-    // carries a localized productTitle which is matched by name against the
-    // catalog; unmatched titles are returned so the user still sees them.
-    struct PurchaseResult {
-        std::vector<EntitlementRecord> records;
-        std::vector<std::string> unmatched_titles;
-    };
-    [[nodiscard]] static PurchaseResult parse_purchases(
-        const std::vector<std::string>& transaction_bodies,
-        const std::vector<ProductDescriptor>& products);
-
-    // Storefront highlight cards embedded in the shop home page (public).
+    // Storefront cards used to enrich purchases that are not in the curated
+    // catalog. The fields are public metadata only; no payment information is
+    // retained.
     struct ShopCard {
         std::string name;
         std::string slug;
         std::string franchise;
         std::string app_game_code;
     };
+
+    struct DynamicProduct {
+        std::string product_id;
+        std::string name;
+        std::string family;
+        std::string reason;
+    };
+
+    // Purchase history (account.battle.net /api/transactions). Each purchase
+    // carries a localized productTitle which is matched against the catalog;
+    // storefront cards can turn otherwise unknown third-party games into
+    // dynamic, ownership-only library entries.
+    struct PurchaseResult {
+        std::vector<EntitlementRecord> records;
+        std::vector<std::string> unmatched_titles;
+        std::vector<DynamicProduct> dynamic_products;
+    };
+    [[nodiscard]] static PurchaseResult parse_purchases(
+        const std::vector<std::string>& transaction_bodies,
+        const std::vector<ProductDescriptor>& products,
+        const std::vector<ShopCard>& shop_cards = {});
+
+    // Storefront highlight cards embedded in the shop home page (public).
     [[nodiscard]] static std::vector<ShopCard> parse_shop_cards(const std::string& html);
     // Complete "Games" navigation menu of the storefront (text, destination,
     // category). Present in every shop page; the category lands in `franchise`

@@ -147,9 +147,14 @@ hours) reads the same internal JSON the account page uses:
 `games-and-subs` (game accounts; `titleId` is the FourCC of the NGDP code),
 `classic-games` (CD keys) and `transactions` (purchase history, including
 purchase-history entitlements such as Warcraft I/II Remastered and the
-Blizzard Arcade Collection). `install` refuses products marked `not owned` unless `--force`
-is given. These endpoints are not a documented API and may change; OpenBlizz
-labels their output accordingly rather than pretending they are stable.
+Blizzard Arcade Collection). When a transaction is not in the curated catalog,
+the scan also checks public storefront cards and can persist a dynamic
+ownership-only `thirdparty-*` entry using the title, product slug and
+`appGameCode`. `install` refuses products marked `not owned` unless `--force`
+is given; dynamic entries still require a real NGDP manifest before they can be
+considered installable. These endpoints are not a documented API and may
+change; OpenBlizz labels their output accordingly rather than pretending they
+are stable.
 
 **Output.** Lists are grouped by franchise (Warcraft, StarCraft, Diablo,
 Blizzard Arcade, Hearthstone, Heroes of the Storm, Overwatch, Other) in aligned

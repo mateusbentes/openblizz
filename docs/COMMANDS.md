@@ -188,9 +188,13 @@ account page uses:
 
 Resulting states: `owned`, `not owned` (title absent from an endpoint that
 would list it, or `Trial`), `unknown` (could not be checked), `owned (manual)`
-(added with `library add`). Purchases that do not map to an installable
-product are listed under "Purchases not mapped to an installable product" so
-nothing is hidden.
+(added with `library add`). If a purchase is not in the curated catalog,
+`library scan` performs a conditional public storefront lookup. A matching
+`/product/` card creates a dynamic ownership-only `thirdparty-*` entry using
+the card name, slug and `appGameCode`; it is grouped under Third-party Battle.net
+titles and is not assumed to be installable. Purchases without a matching card
+remain under "Purchases not mapped to an installable product" so nothing is
+hidden.
 
 `--dump PATH` writes the raw JSON responses (`0600`) so unmapped `titleId`
 values can be reported.

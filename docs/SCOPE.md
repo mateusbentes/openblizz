@@ -17,7 +17,7 @@ endpoints; see [IMPLEMENTATION.md](IMPLEMENTATION.md) for the protocol details.
 | Mobile-origin games, PC build | Diablo Immortal (`anbs`), Warcraft Rumble (`gryphon`), Hearthstone (`hsb`) | yes | yes | **yes** (Windows build) | yes, experimental | use OpenBlizz for the PC version |
 | Mobile builds (APK / IPA) | Diablo Immortal, Rumble, Hearthstone on a phone | no | no | **no** | no | Google Play / App Store; not distributed through NGDP at all |
 | Call of Duty | `odin`, `zeus`, `fore`, `lazr`, `nina`, `auks`, `wlby` | yes (Call of Duty group) | yes | **no** (runtime/content not validated) | no | official Battle.net client, or buy the Steam version |
-| Third-party storefront titles | The Witcher 3: Wild Hunt Remastered and other non-Blizzard games sold on the Battle.net shop | `--shop` and `lyra` metadata | purchase mapped when the title matches | **not yet for the current placeholder build** | yes, if installed from elsewhere | buy on Steam/GOG; optionally run through `openblizz launch` |
+| Third-party storefront titles | The Witcher 3: Wild Hunt Remastered and other non-Blizzard games sold on the Battle.net shop | `--shop` plus dynamic storefront cards | purchase mapped by title/slug/appGameCode when matched | **not yet for the current placeholder build** | yes, if installed from elsewhere | buy on Steam/GOG; optionally run through `openblizz launch` |
 | Classic CD-key games | Diablo II (`d2-classic`), Lord of Destruction (`d2-lod`) | yes (legacy installer only) | yes | **no** | yes (`--backend wine` or umu) | legacy installer from the account page, then `launch` |
 | DLC, services, in-game bundles | expansions, battle passes, cosmetics, WoW game time | `--shop` only | purchase shown as unmapped | n/a | n/a | activated inside the game / account, nothing to download separately |
 
@@ -92,6 +92,15 @@ the normal `plan`/`install` path can be evaluated then. Until that happens,
 buying The Witcher 3 Remastered on Battle.net does not provide content that
 OpenBlizz can download; the purchase is mapped to `lyra` for honest status
 reporting instead of being silently discarded.
+
+When a transaction title is not in the curated catalog, `library scan` makes a
+conditional public storefront lookup. If the title matches a `/product/` card,
+the scan persists an ownership-only entry in the `Third-party Battle.net
+titles` group. Its stable id is based on the public `appGameCode` when present,
+otherwise on the product slug (for example `thirdparty-example-game`); the
+entry records the storefront path but never payment data. This is metadata
+discovery, not a promise that the product is downloadable. Unmatched DLC,
+services and purchases with no storefront card remain in the unmapped list.
 
 None of these games is a Battle.net exclusive — they are also sold on Steam and
 GOG, where they run on Linux through Steam's Proton, Heroic or Lutris. That is

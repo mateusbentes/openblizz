@@ -117,6 +117,14 @@ current page payload. The known third-party product `lyra` is mapped from its
 purchase title, but its current public build has an empty install manifest and
 is rejected as metadata-only rather than reported as a successful install.
 
+When a transaction does not match the curated catalog, `library scan` performs
+the same public storefront lookup on demand. A matching product card produces
+an ownership-only dynamic entry with a stable `thirdparty-*` id derived from
+`appGameCode` or the product slug, while the name and storefront path are
+retained as public evidence. A dynamic entry is never treated as an NGDP
+install target automatically; it must still have a real, supported product
+descriptor and non-empty manifest before installation is possible.
+
 These account endpoints are not part of Blizzard's documented developer API
 and may change; the code isolates them in `library.cpp` and labels their
 output accordingly. Blizzard's public/developer OAuth API, the Battle.net
