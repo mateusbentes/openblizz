@@ -350,7 +350,9 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& purchase_ti
         {"starcraftii", {"s2"}},
         {"starcraft2", {"s2"}},
         {"diabloiiresurrected", {"osi"}},
+        {"diabloiidigitallicense", {"d2-classic"}},
         {"diabloiilordofdestruction", {"d2-lod"}},
+        {"diabloiiexpansionsetlordofdestruction", {"d2-lod"}},
         {"diabloiv", {"fenris"}},
         {"diabloiii", {"d3"}},
         {"diabloimmortal", {"anbs"}},
@@ -360,6 +362,8 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& purchase_ti
         {"heroesofthestorm", {"hero"}},
         {"thewitcher3wildhuntremastered", {"lyra"}},
         {"crashbandicoot4", {"wlby"}},
+        {"warcraftiiireignofchaos", {"w3-legacy-tft"}},
+        {"warcraftiiiexpansionsetthefrozenthrone", {"w3-legacy-tft"}},
     };
     return table;
 }
@@ -634,6 +638,17 @@ const LibraryManager::ShopCard* match_shop_purchase(
     return nullptr;
 }
 
+bool is_non_game_purchase(const std::string& title) {
+    const auto normalized = normalize_title(title);
+    static const std::vector<std::string> markers{
+        "digitallicense", "expansionset", "dlc", "upgrade", "battlepass",
+        "gametime", "subscription", "virtualcurrency", "currency", "cosmetic",
+    };
+    return std::any_of(markers.begin(), markers.end(), [&](const std::string& marker) {
+        return normalized.find(marker) != std::string::npos;
+    });
+}
+
 } // namespace
 
 LibraryManager::PurchaseResult LibraryManager::parse_purchases(
@@ -702,7 +717,7 @@ LibraryManager::PurchaseResult LibraryManager::parse_purchases(
                         }
                     }
                 }
-                if (!matched) {
+                if (!matched && !is_non_game_purchase(title)) {
                     if (const auto* card = match_shop_purchase(title, shop_cards)) {
                         const auto known_ids = shop_destination_products(card->slug);
                         for (const auto& product_id : known_ids) {
@@ -1025,6 +1040,12 @@ int LibraryManager::scan(const Catalog& catalog, const std::filesystem::path& pa
                               web.records.end());
             web.records.push_back(record);
         }
+        // Dynamic entries represent current purchase/storefront evidence. A
+        // later scan must remove one that no longer matches, including an old
+        // false positive created by a broad storefront title.
+        entries.erase(std::remove_if(entries.begin(), entries.end(), [](const LibraryEntry& entry) {
+            return entry.product_id.rfind("thirdparty-", 0) == 0 && entry.source == "account-purchases";
+        }), entries.end());
         for (const auto& dynamic : purchases.dynamic_products) {
             const auto existing = std::find_if(entries.begin(), entries.end(), [&](const LibraryEntry& entry) {
                 return entry.product_id == dynamic.product_id;

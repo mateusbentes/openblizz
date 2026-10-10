@@ -348,6 +348,27 @@ int main() {
         assert(purchases.dynamic_products[0].name == "Example Game");
         assert(purchases.unmatched_titles.empty());
     }
+    {
+        const std::vector<openblizz::ProductDescriptor> products{
+            {"d2-classic", "Diablo II (classic, legacy installer)", "diablo", "", false},
+            {"d2-lod", "Diablo II: Lord of Destruction (classic, legacy installer)", "diablo", "", false},
+        };
+        const auto purchases = openblizz::LibraryManager::parse_purchases(
+            {R"({"purchases":[
+                {"productTitle":"Diablo II Expansion Set: Lord of Destruction Digital License","status":7},
+                {"productTitle":"Example Game Expansion Set Digital License","status":7}
+            ],"giftClaims":[]})"},
+            products,
+            {openblizz::LibraryManager::ShopCard{
+                "Diablo II (2000)", "/product/diablo-ii", "Diablo", ""},
+             openblizz::LibraryManager::ShopCard{
+                "Example Game", "/product/example-game", "Example", "EXG"}});
+        assert(purchases.records.size() == 1);
+        assert(purchases.records[0].product_id == "d2-lod");
+        assert(purchases.dynamic_products.empty());
+        assert(purchases.unmatched_titles.size() == 1);
+        assert(purchases.unmatched_titles[0].find("Example Game") != std::string::npos);
+    }
 
 
     const auto tvfs = openblizz::parse_tvfs(make_tvfs(0x01));

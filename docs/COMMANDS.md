@@ -194,7 +194,9 @@ would list it, or `Trial`), `unknown` (could not be checked), `owned (manual)`
 the card name, slug and `appGameCode`; it is grouped under Third-party Battle.net
 titles and is not assumed to be installable. Purchases without a matching card
 remain under "Purchases not mapped to an installable product" so nothing is
-hidden.
+hidden. Known classic license/expansion patterns are handled by the fixed
+catalog mappings; generic `Digital License`, `Expansion Set`, `DLC`, `Upgrade`
+and service markers are deliberately excluded from dynamic game discovery.
 
 `--dump PATH` writes the raw JSON responses (`0600`) so unmapped `titleId`
 values can be reported.
