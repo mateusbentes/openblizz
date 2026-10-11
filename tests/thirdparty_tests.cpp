@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <map>
@@ -60,6 +61,35 @@ Bytes blte_single(const Bytes& decoded) {
     Bytes encoded{'B', 'L', 'T', 'E', 0, 0, 0, 0, 'N'};
     encoded.insert(encoded.end(), decoded.begin(), decoded.end());
     return encoded;
+}
+
+Bytes blte_multi(const std::vector<Bytes>& decoded_chunks) {
+    assert(!decoded_chunks.empty());
+    const auto header_size = static_cast<std::uint32_t>(12 + decoded_chunks.size() * 24);
+    Bytes encoded{'B', 'L', 'T', 'E', static_cast<std::uint8_t>(header_size >> 24),
+                  static_cast<std::uint8_t>(header_size >> 16), static_cast<std::uint8_t>(header_size >> 8),
+                  static_cast<std::uint8_t>(header_size), 0x0f,
+                  static_cast<std::uint8_t>(decoded_chunks.size() >> 16),
+                  static_cast<std::uint8_t>(decoded_chunks.size() >> 8),
+                  static_cast<std::uint8_t>(decoded_chunks.size())};
+    Bytes body;
+    for (const auto& chunk : decoded_chunks) {
+        Bytes compressed{'N'};
+        compressed.insert(compressed.end(), chunk.begin(), chunk.end());
+        put_u32(encoded, static_cast<std::uint32_t>(compressed.size()));
+        put_u32(encoded, static_cast<std::uint32_t>(chunk.size()));
+        const auto checksum = openblizz::hex_to_bytes(openblizz::md5_hex(compressed));
+        encoded.insert(encoded.end(), checksum.begin(), checksum.end());
+        body.insert(body.end(), compressed.begin(), compressed.end());
+    }
+    encoded.insert(encoded.end(), body.begin(), body.end());
+    return encoded;
+}
+
+std::filesystem::path casc_archive_path(const std::filesystem::path& root, const std::uint16_t archive) {
+    std::ostringstream name;
+    name << "data." << std::setfill('0') << std::setw(3) << archive;
+    return root / "Data" / "data" / name.str();
 }
 
 std::string object_url(const std::string& kind, const std::string& hash,
@@ -346,6 +376,12 @@ void write_file(const std::filesystem::path& path, const Bytes& data) {
     assert(output);
 }
 
+Bytes read_file(const std::filesystem::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    assert(input);
+    return Bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+}
+
 void test_product_resolution(openblizz::HttpClient& http, const Fixture& fixture) {
     OfflineTransport transport;
     transport.responses["https://metadata.test/unused"] = {};
@@ -559,6 +595,11 @@ void test_archive_pipeline(openblizz::HttpClient& http, const std::filesystem::p
     assert(installer.install(plan, root / "range", "enUS", 1) == 1);
     assert(transport.count(archive_url) == 1 && transport.count(loose_url) == 0);
     assert(installer.verify(plan, root / "range", "enUS").empty());
+    // A truncated local index is rejected structurally and fetched again.
+    write_file(root / "cache" / "indices" / (archive_hash + ".index"), Bytes{0x01, 0x02});
+    const auto index_before_recovery = transport.count(object_url("data", archive_hash, ".index"));
+    (void)installer.plan(entry.product_id, "us", "enUS");
+    assert(transport.count(object_url("data", archive_hash, ".index")) == index_before_recovery + 1);
     // A later range failure falls back to a loose object in an independent cache.
     transport.responses.erase(archive_url);
     transport.responses[loose_url] = fixture.game_object;
@@ -566,6 +607,15 @@ void test_archive_pipeline(openblizz::HttpClient& http, const std::filesystem::p
     assert(fallback.install(plan, root / "fallback", "enUS", 1) == 1);
     assert(transport.count(loose_url) == 1);
     assert(fallback.verify(plan, root / "fallback", "enUS").empty());
+
+    // An archive 200 response with a bad encoded chunk still falls back to a
+    // valid loose copy, not only when the range transport throws.
+    transport.responses[archive_url] = archive;
+    transport.responses[archive_url][9] ^= 0x01;
+    openblizz::Installer invalid_archive(catalog, root / "invalid-archive-cache");
+    assert(invalid_archive.install(plan, root / "invalid-archive", "enUS", 1) == 1);
+    assert(transport.count(loose_url) >= 2);
+    assert(invalid_archive.verify(plan, root / "invalid-archive", "enUS").empty());
 }
 
 void test_archived_manifests(openblizz::HttpClient& http, const std::filesystem::path& root) {
@@ -644,6 +694,16 @@ void test_archived_manifests(openblizz::HttpClient& http, const std::filesystem:
     transport.responses[archive_url] = corrupted;
     assert(throws([&] { (void)installer.plan(entry.product_id, "us", "enUS"); },
                   "install manifest content hash mismatch"));
+
+    // A loose 200 response with a valid BLTE wrapper but the wrong decoded
+    // CKey must fall through to the valid archived manifest.
+    Bytes loose_corrupted = blte_single(fixture.normal_install);
+    loose_corrupted[9] ^= 1;
+    transport.responses[archive_url] = archive;
+    transport.responses[install_url] = loose_corrupted;
+    openblizz::Installer loose_fallback(catalog, root / "loose-corrupt-cache");
+    const auto recovered = loose_fallback.plan(entry.product_id, "us", "enUS");
+    assert(recovered.selected_entries.size() == 1);
 }
 
 void test_casc_metadata(openblizz::HttpClient& http, const Fixture& fixture,
@@ -669,6 +729,74 @@ void test_casc_metadata(openblizz::HttpClient& http, const Fixture& fixture,
     const auto requests = transport.total();
     assert(installer.install(plan, installed, "enUS", 2) == 1);
     assert(transport.total() == requests); // completed file and CASC object reused
+}
+
+void test_casc_integrity(openblizz::HttpClient& http, const Fixture& fixture,
+                         const std::filesystem::path& root) {
+    OfflineTransport transport;
+    fixture.configure(transport, "normal");
+    const auto entry = dynamic_entry("thirdparty-exg", "Example Game", openblizz::OwnershipState::Owned,
+                                     "account-purchases", "exg");
+    openblizz::Catalog catalog(http, {entry}, "https://metadata.test", transport.function());
+    openblizz::Installer installer(catalog, root / "cache");
+    auto plan = installer.plan(entry.product_id, "us", "enUS");
+    plan.casc = true;
+    plan.selected_entries.clear();
+    const auto first = blte_multi({as_bytes("first-"), as_bytes("payload")});
+    const auto second = blte_multi({as_bytes("second-"), as_bytes("payload")});
+    const auto first_key = openblizz::md5_hex(Bytes(first.begin(), first.begin() + 12 + 24 * 2));
+    const auto second_key = openblizz::md5_hex(Bytes(second.begin(), second.begin() + 12 + 24 * 2));
+    transport.responses[object_url("data", first_key)] = first;
+    transport.responses[object_url("data", second_key)] = second;
+    plan.data_objects = {{first_key, first.size(), "integrity"}, {second_key, second.size(), "integrity"}};
+    plan.data_bytes = first.size() + second.size();
+
+    const auto installed = root / "game";
+    assert(installer.install(plan, installed, "enUS", 1) == 2);
+    assert(installer.verify(plan, installed, "enUS", true).empty());
+    openblizz::CascStorage storage(installed / "Data");
+    storage.open();
+    const auto first_entry = storage.find(first_key);
+    const auto second_entry = storage.find(second_key);
+    assert(first_entry && second_entry);
+
+    // Preserve the BLTE header/EKey but change one encoded chunk byte. A
+    // shallow index-presence check would incorrectly skip this object.
+    auto archive = read_file(casc_archive_path(installed, first_entry->archive));
+    archive[first_entry->offset + openblizz::kCascDataHeaderSize + 1] ^= 0x01;
+    write_file(casc_archive_path(installed, first_entry->archive), archive);
+    assert(!installer.verify(plan, installed, "enUS", true).empty());
+    const auto first_before_resume = transport.count(object_url("data", first_key));
+    const auto second_before_resume = transport.count(object_url("data", second_key));
+    assert(installer.install(plan, installed, "enUS", 1) == 1);
+    assert(transport.count(object_url("data", first_key)) == first_before_resume + 1);
+    assert(transport.count(object_url("data", second_key)) == second_before_resume);
+    assert(installer.verify(plan, installed, "enUS", true).empty());
+
+    // Repair uses deep verification and must remove a same-size bad object.
+    storage.open();
+    const auto repaired_entry = storage.find(first_key);
+    assert(repaired_entry);
+    archive = read_file(casc_archive_path(installed, repaired_entry->archive));
+    archive[repaired_entry->offset + openblizz::kCascDataHeaderSize + 2] ^= 0x01;
+    write_file(casc_archive_path(installed, repaired_entry->archive), archive);
+    const auto before_repair = transport.count(object_url("data", first_key));
+    assert(installer.repair(plan, installed, "enUS", 1) == 1);
+    assert(transport.count(object_url("data", first_key)) == before_repair + 1);
+    assert(installer.verify(plan, installed, "enUS", true).empty());
+
+    // A journal entry whose archive cannot be read is also removed and fetched.
+    storage.open();
+    const auto unreadable_entry = storage.find(second_key);
+    assert(unreadable_entry);
+    std::filesystem::remove(casc_archive_path(installed, unreadable_entry->archive));
+    assert(!installer.verify(plan, installed, "enUS", true).empty());
+    const auto before_first_read_repair = transport.count(object_url("data", first_key));
+    const auto before_read_repair = transport.count(object_url("data", second_key));
+    assert(installer.repair(plan, installed, "enUS", 1) == 2);
+    assert(transport.count(object_url("data", first_key)) == before_first_read_repair + 1);
+    assert(transport.count(object_url("data", second_key)) == before_read_repair + 1);
+    assert(installer.verify(plan, installed, "enUS", true).empty());
 }
 
 void test_shared_cache(openblizz::HttpClient& http, const Fixture& fixture,
@@ -707,6 +835,7 @@ int main() {
     test_archive_pipeline(http, temporary.path / "archive");
     test_archived_manifests(http, temporary.path / "archived-manifests");
     test_casc_metadata(http, encrypted_fixture, temporary.path / "casc");
+    test_casc_integrity(http, fixture, temporary.path / "casc-integrity");
     test_shared_cache(http, fixture, temporary.path / "shared-cache");
 
     std::cout << "OpenBlizz third-party tests passed\n";

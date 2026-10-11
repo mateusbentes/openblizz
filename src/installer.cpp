@@ -1,6 +1,7 @@
 #include "openblizz/installer.hpp"
 #include "openblizz/hash.hpp"
 #include "openblizz/tvfs.hpp"
+#include "openblizz/file_safety.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -9,6 +10,7 @@
 #include <chrono>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <mutex>
 #include <set>
 #include <stdexcept>
@@ -26,39 +28,11 @@ constexpr std::uint64_t kCommitEveryBytes = 256ull * 1024 * 1024;   // journal f
 constexpr int kRangeAttempts = 3;                                    // archive range retries before per-object fallback
 
 std::vector<std::uint8_t> read_file(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) throw std::runtime_error("cannot read file: " + path.string());
-    input.seekg(0, std::ios::end);
-    const auto size = input.tellg();
-    input.seekg(0, std::ios::beg);
-    if (size < 0) throw std::runtime_error("cannot determine file size: " + path.string());
-    std::vector<std::uint8_t> data(static_cast<std::size_t>(size));
-    input.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size()));
-    if (!input && !data.empty()) throw std::runtime_error("short read: " + path.string());
-    return data;
+    return file_safety::read(path);
 }
 
 void write_atomic(const std::filesystem::path& path, const std::vector<std::uint8_t>& data) {
-    std::filesystem::create_directories(path.parent_path());
-    // Different output files can share an EKey/cache object. Their workers
-    // must not truncate or rename the same temporary cache filename.
-    static std::atomic<std::uint64_t> sequence{0};
-    const auto part = path.string() + ".part." + std::to_string(::getpid()) + "." +
-                      std::to_string(sequence.fetch_add(1));
-    {
-        std::ofstream output(part, std::ios::binary | std::ios::trunc);
-        if (!output) throw std::runtime_error("cannot write temporary file: " + part);
-        output.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
-        if (!output) throw std::runtime_error("failed writing temporary file: " + part);
-    }
-    std::error_code error;
-    std::filesystem::rename(part, path, error);
-    if (error) {
-        std::filesystem::remove(path, error);
-        error.clear();
-        std::filesystem::rename(part, path, error);
-        if (error) throw std::runtime_error("cannot commit file: " + path.string());
-    }
+    file_safety::write_atomic(path, data);
 }
 
 void write_atomic(const std::filesystem::path& path, const std::string& text) {
@@ -72,15 +46,7 @@ bool tag_has_file(const InstallTag& tag, std::size_t index) {
 }
 
 std::filesystem::path safe_relative_path(const std::string& raw) {
-    std::string normalized = raw;
-    std::replace(normalized.begin(), normalized.end(), '\\', '/');
-    std::filesystem::path path(normalized);
-    if (path.is_absolute()) throw std::runtime_error("manifest contains an absolute path: " + raw);
-    path = path.lexically_normal();
-    for (const auto& component : path) {
-        if (component == "..") throw std::runtime_error("manifest path escapes install directory: " + raw);
-    }
-    return path;
+    return file_safety::windows_relative(raw);
 }
 
 std::string lower(std::string value) {
@@ -90,16 +56,54 @@ std::string lower(std::string value) {
 
 // EKeys are MD5s of the encoded object: of the whole file for single-chunk
 // BLTE, of the BLTE header (which carries the chunk checksums) otherwise.
+// This intentionally does not decrypt or decompress: CASC can validate an
+// object before its KeyRing is available, while still rejecting a corrupted
+// chunk whose BLTE header happens to be intact.
 bool verify_encoded(const std::string& encoding_key, const std::vector<std::uint8_t>& encoded) {
-    if (encoded.size() < 8 || encoded[0] != 'B' || encoded[1] != 'L' || encoded[2] != 'T' || encoded[3] != 'E') {
+    if (!is_hex_hash(encoding_key, 16) || encoded.size() < 9 || encoded[0] != 'B' ||
+        encoded[1] != 'L' || encoded[2] != 'T' || encoded[3] != 'E') {
         return false;
     }
     const std::uint32_t header_size = (static_cast<std::uint32_t>(encoded[4]) << 24) |
                                       (static_cast<std::uint32_t>(encoded[5]) << 16) |
                                       (static_cast<std::uint32_t>(encoded[6]) << 8) | encoded[7];
     if (header_size == 0) return md5_hex(encoded) == encoding_key;
-    if (header_size > encoded.size()) return false;
-    return md5_hex(std::vector<std::uint8_t>(encoded.begin(), encoded.begin() + header_size)) == encoding_key;
+    if (header_size < 12 || header_size > encoded.size() || encoded[8] != 0x0f) return false;
+
+    const auto chunk_count = (static_cast<std::uint32_t>(encoded[9]) << 16) |
+                             (static_cast<std::uint32_t>(encoded[10]) << 8) | encoded[11];
+    const auto table_end = 12ull + static_cast<std::uint64_t>(chunk_count) * 24ull;
+    if (chunk_count == 0 || table_end != header_size || md5_hex(
+            std::vector<std::uint8_t>(encoded.begin(), encoded.begin() + header_size)) != encoding_key) {
+        return false;
+    }
+
+    std::size_t body_offset = header_size;
+    for (std::uint32_t index = 0; index < chunk_count; ++index) {
+        const auto table_offset = 12ull + static_cast<std::uint64_t>(index) * 24ull;
+        const auto compressed = (static_cast<std::uint32_t>(encoded[table_offset]) << 24) |
+                                (static_cast<std::uint32_t>(encoded[table_offset + 1]) << 16) |
+                                (static_cast<std::uint32_t>(encoded[table_offset + 2]) << 8) |
+                                encoded[table_offset + 3];
+        if (compressed == 0 || body_offset > encoded.size() || compressed > encoded.size() - body_offset) {
+            return false;
+        }
+        const auto chunk_end = body_offset + static_cast<std::size_t>(compressed);
+        const std::vector<std::uint8_t> chunk(encoded.begin() + static_cast<std::ptrdiff_t>(body_offset),
+                                              encoded.begin() + static_cast<std::ptrdiff_t>(chunk_end));
+        const auto checksum = md5_hex(chunk);
+        std::string expected_checksum;
+        expected_checksum.reserve(32);
+        static constexpr char digits[] = "0123456789abcdef";
+        for (std::size_t byte = 0; byte < 16; ++byte) {
+            const auto value = encoded[table_offset + 8 + byte];
+            expected_checksum.push_back(digits[value >> 4]);
+            expected_checksum.push_back(digits[value & 0x0f]);
+        }
+        if (checksum != expected_checksum) return false;
+        body_offset = chunk_end;
+    }
+    return body_offset == encoded.size();
 }
 
 std::string format_mib(std::uint64_t bytes) {
@@ -369,38 +373,56 @@ InstallPlan Installer::plan(const std::string& product, const std::string& regio
         result.archive_entries = archive_entries(result.cdn, result.cdn_config);
         indexes_loaded = true;
     };
-    const auto manifest = [&](const KeyPair& pair) {
-        std::vector<std::uint8_t> encoded;
-        try {
-            encoded = catalog_.fetch_data(result.cdn, pair.encoding_key);
-        } catch (const std::exception& direct_error) {
-            // Some products publish the named-file manifests only inside an
-            // archive. Do not mistake a loose-object 404 for missing content.
-            const std::string direct_reason = direct_error.what();
-            load_indexes();
-            const auto location = result.archive_entries.find(pair.encoding_key);
-            if (location == result.archive_entries.end()) {
-                throw std::runtime_error("manifest " + pair.encoding_key +
-                    " is unavailable as a loose object or in the advertised archives: " + direct_reason);
+    const auto manifest = [&](const KeyPair& pair, const std::string& name) {
+        const auto validate = [&](const std::vector<std::uint8_t>& encoded) {
+            const auto decoded = BlteDecoder::decode(encoded, result.keyring);
+            if (md5_hex(decoded) != pair.content_key) {
+                throw std::runtime_error(name + " manifest content hash mismatch for " + product);
             }
-            encoded = catalog_.fetch_archive_range(result.cdn, location->second.archive_key,
-                                                   location->second.offset, location->second.encoded_size);
+            if (!verify_encoded(pair.encoding_key, encoded)) {
+                throw std::runtime_error(name + " manifest encoded EKey/chunk verification failed for " + product);
+            }
+            // Parsing is part of source validation too: a 200 response with a
+            // valid BLTE/CKey but a malformed manifest must still try archive.
+            if (name == "install") {
+                (void)parse_install_manifest(decoded);
+            } else {
+                (void)EncodingIndex::parse(decoded);
+            }
+            return decoded;
+        };
+
+        std::string direct_reason;
+        try {
+            return validate(catalog_.fetch_data(result.cdn, pair.encoding_key));
+        } catch (const std::exception& direct_error) {
+            direct_reason = direct_error.what();
         }
-        return BlteDecoder::decode(encoded, result.keyring);
+
+        // Some products publish the named-file manifests only inside an
+        // archive. Any loose-source failure (including a 200 with bad BLTE or
+        // CKey) is eligible for the same fallback as a transport failure.
+        load_indexes();
+        const auto location = result.archive_entries.find(pair.encoding_key);
+        if (location == result.archive_entries.end()) {
+            throw std::runtime_error("manifest " + pair.encoding_key +
+                " is unavailable as a loose object or in the advertised archives: " + direct_reason);
+        }
+        try {
+            return validate(catalog_.fetch_archive_range(result.cdn, location->second.archive_key,
+                                                         location->second.offset, location->second.encoded_size));
+        } catch (const std::exception& archive_error) {
+            throw std::runtime_error("manifest " + pair.encoding_key + " loose source failed (" + direct_reason +
+                                     "); archive source failed (" + archive_error.what() + ")");
+        }
     };
-    const auto install_decoded = manifest(*install_pair);
-    if (md5_hex(install_decoded) != install_pair->content_key) {
-        throw std::runtime_error("install manifest content hash mismatch for " + product);
-    }
+    const auto install_decoded = manifest(*install_pair, "install");
     result.install_manifest = parse_install_manifest(install_decoded);
     if (result.install_manifest.entries.empty()) {
         throw std::runtime_error("product " + product + " has an empty install manifest; the current CDN build is metadata-only");
     }
 
-    const auto encoding_decoded = manifest(*encoding_pair);
-    if (md5_hex(encoding_decoded) != encoding_pair->content_key) {
-        throw std::runtime_error("encoding manifest content hash mismatch for " + product);
-    }
+    const auto encoding_decoded = manifest(*encoding_pair, "encoding");
     const auto encoding = EncodingIndex::parse(encoding_decoded);
     result.mappings = encoding.mappings();
     std::map<std::string, InstallEntry> outputs;
@@ -438,17 +460,29 @@ InstallPlan Installer::plan(const std::string& product, const std::string& regio
 }
 
 std::filesystem::path Installer::cache_path(const std::string& hash) const {
+    if (!is_hex_hash(hash, 16)) throw std::runtime_error("invalid cache object EKey: " + hash);
     return cache_root_ / "objects" / hash.substr(0, 2) / hash.substr(2, 2) / hash;
 }
 
 std::filesystem::path Installer::index_cache_path(const std::string& hash) const {
+    if (!is_hex_hash(hash, 16)) throw std::runtime_error("invalid archive index key: " + hash);
     return cache_root_ / "indices" / (hash + ".index");
 }
 
 std::vector<std::uint8_t> Installer::archive_index_bytes(const CdnInfo& cdn, const std::string& hash) const {
     const auto path = index_cache_path(hash);
-    if (std::filesystem::exists(path)) return read_file(path);
+    file_safety::check_target(path, true);
+    if (std::filesystem::exists(path)) {
+        try {
+            auto bytes = read_file(path);
+            (void)ArchiveIndex::parse(bytes);
+            return bytes;
+        } catch (const std::exception&) {
+            // Keep the old index until a valid replacement is ready.
+        }
+    }
     auto bytes = catalog_.fetch_archive_index(cdn, hash);
+    (void)ArchiveIndex::parse(bytes);
     write_atomic(path, bytes);
     return bytes;
 }
@@ -476,14 +510,20 @@ std::unordered_map<std::string, ArchiveLocation> Installer::archive_entries(
 std::vector<std::uint8_t> Installer::fetch_encoded(
     const CdnInfo& cdn, const std::unordered_map<std::string, ArchiveLocation>& archives,
     const std::string& encoding_key) const {
+    const auto validate = [&](std::vector<std::uint8_t> encoded, const std::string& source) {
+        if (!verify_encoded(encoding_key, encoded)) {
+            throw std::runtime_error("encoded object " + encoding_key + " failed EKey/chunk verification from " + source);
+        }
+        return encoded;
+    };
     const auto location = archives.find(encoding_key);
-    if (location == archives.end()) return catalog_.fetch_data(cdn, encoding_key);
+    if (location == archives.end()) return validate(catalog_.fetch_data(cdn, encoding_key), "loose CDN");
     try {
-        return catalog_.fetch_archive_range(cdn, location->second.archive_key,
-                                            location->second.offset, location->second.encoded_size);
+        return validate(catalog_.fetch_archive_range(cdn, location->second.archive_key,
+                                                     location->second.offset, location->second.encoded_size), "archive");
     } catch (const std::exception& archive_error) {
         try {
-            return catalog_.fetch_data(cdn, encoding_key);
+            return validate(catalog_.fetch_data(cdn, encoding_key), "loose CDN");
         } catch (const std::exception& direct_error) {
             throw std::runtime_error("archive object failed (" + std::string(archive_error.what()) +
                                      "); direct object failed (" + direct_error.what() + ")");
@@ -504,6 +544,7 @@ std::vector<std::uint8_t> Installer::content(
 bool Installer::install_one(const InstallPlan& plan, const InstallEntry& entry,
                             const std::filesystem::path& directory) const {
     const auto output = directory / safe_relative_path(entry.path);
+    file_safety::check_target(output, true);
     if (std::filesystem::exists(output)) {
         try {
             const auto existing = read_file(output);
@@ -554,7 +595,7 @@ std::size_t Installer::install(const InstallPlan& plan, const std::filesystem::p
                                const std::string& locale, std::size_t jobs) const {
     (void)locale;
     if (jobs == 0) jobs = 1;
-    std::filesystem::create_directories(directory);
+    (void)file_safety::directory(directory, true);
     std::atomic<std::size_t> completed{0};
     std::mutex output_mutex;
     run_parallel(jobs, plan.selected_entries.size(), [&](std::size_t index) {
@@ -600,8 +641,27 @@ std::size_t Installer::install_data(const InstallPlan& plan, const std::filesyst
     std::vector<Task> tasks;
     std::uint64_t pending_bytes = 0;
     std::size_t pending_count = 0;
+    bool discarded_invalid = false;
     for (const auto& object : plan.data_objects) {
-        if (storage.contains(object.encoding_key)) continue;
+        const auto indexed = storage.find(object.encoding_key);
+        if (indexed) {
+            bool valid = indexed->size >= kCascDataHeaderSize;
+            if (valid && object.encoded_size != 0) {
+                valid = object.encoded_size <= std::numeric_limits<std::uint32_t>::max() &&
+                        indexed->size == object.encoded_size + kCascDataHeaderSize;
+            }
+            try {
+                if (valid) {
+                    const auto encoded = storage.read(*indexed);
+                    valid = (object.encoded_size == 0 || encoded.size() == object.encoded_size) &&
+                            verify_encoded(object.encoding_key, encoded);
+                }
+            } catch (const std::exception&) {
+                valid = false;
+            }
+            if (valid) continue;
+            if (storage.erase(object.encoding_key)) discarded_invalid = true;
+        }
         ++pending_count;
         pending_bytes += object.encoded_size;
         const auto location = plan.archive_entries.find(object.encoding_key);
@@ -611,6 +671,7 @@ std::size_t Installer::install_data(const InstallPlan& plan, const std::filesyst
             by_archive[location->second.archive_key].push_back(Piece{&object, &location->second});
         }
     }
+    if (discarded_invalid) storage.commit();
     // Coalesce neighbouring archive objects into large range requests.
     for (auto& [archive_key, pieces] : by_archive) {
         std::sort(pieces.begin(), pieces.end(), [](const Piece& a, const Piece& b) {
@@ -751,6 +812,7 @@ void Installer::write_storage_metadata(const InstallPlan& plan, const std::files
     write_casc_config(data_dir, plan.version.cdn_config, plan.cdn_config_bytes);
     for (const auto& hash : plan.cdn_config.get("archives")) {
         const auto target = data_dir / "indices" / (hash + ".index");
+        file_safety::check_target(target, true);
         if (!std::filesystem::exists(target)) write_atomic(target, archive_index_bytes(plan.cdn, hash));
     }
 
@@ -838,7 +900,7 @@ std::vector<std::string> Installer::verify(const InstallPlan& plan,
 
 std::size_t Installer::repair(const InstallPlan& plan, const std::filesystem::path& directory,
                               const std::string& locale, std::size_t jobs) const {
-    const auto failures = verify(plan, directory, locale);
+    const auto failures = verify(plan, directory, locale, true);
     if (failures.empty()) return 0;
     std::set<std::string> broken;
     for (const auto& failure : failures) broken.insert(failure.substr(0, failure.find(':')));
@@ -856,8 +918,8 @@ std::size_t Installer::repair(const InstallPlan& plan, const std::filesystem::pa
         bool changed = false;
         for (const auto& failure : failures) {
             if (failure.rfind("casc ", 0) != 0) continue;
-            if (failure.find("size mismatch") == std::string::npos && failure.find("hash mismatch") == std::string::npos) continue;
-            const auto key = failure.substr(5, failure.find(' ', 5) - 5);
+            const auto end = failure.find_first_of(" (:", 5);
+            const auto key = failure.substr(5, end == std::string::npos ? std::string::npos : end - 5);
             if (is_hex_hash(key, 16) && storage.erase(key)) changed = true;
         }
         if (changed) storage.commit();

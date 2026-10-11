@@ -6,8 +6,12 @@
 #include <sys/stat.h>
 #endif
 
+#include <algorithm>
+#include <charconv>
+#include <cctype>
 #include <cstdio>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -37,6 +41,37 @@ size_t write_memory(char* ptr, size_t size, size_t count, void* userdata) {
     return bytes;
 }
 
+struct RangeBuffer {
+    std::vector<std::uint8_t>* output;
+    std::size_t limit;
+};
+
+size_t write_range(char* ptr, size_t size, size_t count, void* userdata) {
+    auto& buffer = *static_cast<RangeBuffer*>(userdata);
+    if (size != 0 && count > std::numeric_limits<std::size_t>::max() / size) return 0;
+    const auto bytes = size * count;
+    if (bytes > buffer.limit - buffer.output->size()) return 0;
+    buffer.output->insert(buffer.output->end(), reinterpret_cast<std::uint8_t*>(ptr),
+                          reinterpret_cast<std::uint8_t*>(ptr) + bytes);
+    return bytes;
+}
+
+bool valid_content_range(const std::string& value, std::uint64_t offset, std::uint32_t size) {
+    if (value.rfind("bytes ", 0) != 0) return false;
+    const auto dash = value.find('-', 6);
+    const auto slash = value.find('/', dash == std::string::npos ? 6 : dash + 1);
+    if (dash == std::string::npos || slash == std::string::npos) return false;
+    const auto number = [&](std::size_t first, std::size_t last, std::uint64_t& result) {
+        const auto parsed = std::from_chars(value.data() + first, value.data() + last, result);
+        return parsed.ec == std::errc{} && parsed.ptr == value.data() + last;
+    };
+    std::uint64_t begin{}, end{}, total{};
+    if (!number(6, dash, begin) || !number(dash + 1, slash, end)) return false;
+    if (begin != offset || end != offset + size - 1) return false;
+    if (value.substr(slash + 1) == "*") return true;
+    return number(slash + 1, value.size(), total) && total > end;
+}
+
 size_t write_file(char* ptr, size_t size, size_t count, void* userdata) {
     const auto bytes = size * count;
     auto* output = static_cast<std::ofstream*>(userdata);
@@ -47,13 +82,17 @@ size_t write_file(char* ptr, size_t size, size_t count, void* userdata) {
 size_t header_callback(char* ptr, size_t size, size_t count, void* userdata) {
     const auto bytes = size * count;
     std::string line(ptr, bytes);
+    auto* headers = static_cast<std::map<std::string, std::string>*>(userdata);
+    // Intermediate redirects/100 responses must not supply headers for the
+    // final response. HTTP header names are case-insensitive.
+    if (line.rfind("HTTP/", 0) == 0) headers->clear();
     const auto colon = line.find(':');
     if (colon != std::string::npos) {
-        auto* headers = static_cast<std::map<std::string, std::string>*>(userdata);
         auto key = line.substr(0, colon);
+        std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) { return std::tolower(c); });
         auto value = line.substr(colon + 1);
-        while (!value.empty() && (value.back() == '\r' || value.back() == '\n')) value.pop_back();
-        while (!value.empty() && value.front() == ' ') value.erase(value.begin());
+        while (!value.empty() && (value.back() == '\r' || value.back() == '\n' || value.back() == ' ' || value.back() == '\t')) value.pop_back();
+        while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) value.erase(value.begin());
         (*headers)[key] = value;
     }
     return bytes;
@@ -142,16 +181,23 @@ HttpResponse HttpClient::get_range(const std::string& url, std::uint64_t offset,
                                    std::uint32_t size,
                                    const std::vector<std::string>& headers) const {
     if (size == 0) throw std::runtime_error("HTTP Range request has zero size");
+    if (offset > std::numeric_limits<std::uint64_t>::max() - (size - 1)) {
+        throw std::runtime_error("HTTP Range request overflows its end offset");
+    }
     (void)impl_;
     CURL* curl = curl_easy_init();
     if (curl == nullptr) throw std::runtime_error("curl_easy_init failed");
 
     HttpResponse response;
     configure(curl, url, headers);
+    // Range offsets identify encoded archive bytes, not decoded HTTP content.
+    curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "identity");
+    curl_easy_setopt(curl, CURLOPT_HTTP_CONTENT_DECODING, 0L);
     const auto range = std::to_string(offset) + "-" + std::to_string(offset + size - 1);
     curl_easy_setopt(curl, CURLOPT_RANGE, range.c_str());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_memory);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
+    RangeBuffer buffer{&response.body, size};
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_range);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_callback);
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, &response.headers);
 
@@ -170,9 +216,17 @@ HttpResponse HttpClient::get_range(const std::string& url, std::uint64_t offset,
     free_headers(curl);
     curl_easy_cleanup(curl);
 
-    if (response.status < 200 || response.status >= 300) {
+    if (response.status != 206) {
         throw std::runtime_error("HTTP Range GET returned status " + std::to_string(response.status) +
-                                 " for " + url);
+                                 "; expected 206 for " + url);
+    }
+    const auto content_range = response.headers.find("content-range");
+    if (content_range == response.headers.end() || !valid_content_range(content_range->second, offset, size)) {
+        throw std::runtime_error("HTTP Range GET has missing or mismatched Content-Range for " + url);
+    }
+    const auto encoding = response.headers.find("content-encoding");
+    if (encoding != response.headers.end() && encoding->second != "identity") {
+        throw std::runtime_error("HTTP Range GET has non-identity Content-Encoding for " + url);
     }
     if (response.body.size() != size) {
         throw std::runtime_error("HTTP Range GET returned " + std::to_string(response.body.size()) +

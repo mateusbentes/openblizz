@@ -1,5 +1,6 @@
 #include "openblizz/casc.hpp"
 #include "openblizz/hash.hpp"
+#include "openblizz/file_safety.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -48,34 +49,11 @@ std::uint32_t get_u32le(const std::vector<std::uint8_t>& in, std::size_t offset)
 }
 
 std::vector<std::uint8_t> read_file(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) throw std::runtime_error("cannot read file: " + path.string());
-    input.seekg(0, std::ios::end);
-    const auto size = input.tellg();
-    input.seekg(0, std::ios::beg);
-    std::vector<std::uint8_t> data(static_cast<std::size_t>(std::max<std::streamoff>(size, 0)));
-    input.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size()));
-    if (!input && !data.empty()) throw std::runtime_error("short read: " + path.string());
-    return data;
+    return file_safety::read(path);
 }
 
 void write_atomic(const std::filesystem::path& path, const std::vector<std::uint8_t>& data) {
-    std::filesystem::create_directories(path.parent_path());
-    const auto part = path.string() + ".part";
-    {
-        std::ofstream output(part, std::ios::binary | std::ios::trunc);
-        if (!output) throw std::runtime_error("cannot write temporary file: " + part);
-        output.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
-        if (!output) throw std::runtime_error("failed writing temporary file: " + part);
-    }
-    std::error_code error;
-    std::filesystem::rename(part, path, error);
-    if (error) {
-        std::filesystem::remove(path, error);
-        error.clear();
-        std::filesystem::rename(part, path, error);
-        if (error) throw std::runtime_error("cannot commit file: " + path.string());
-    }
+    file_safety::write_atomic(path, data);
 }
 
 std::string index_file_name(std::uint8_t bucket, std::uint32_t version) {
@@ -233,13 +211,14 @@ std::filesystem::path CascStorage::archive_path(std::uint16_t archive) const {
 
 void CascStorage::open() {
     std::lock_guard lock(mutex_);
-    std::filesystem::create_directories(directory_);
+    (void)file_safety::directory(directory_, true);
     entries_.clear();
     versions_.fill(0);
     dirty_.fill(false);
     std::array<std::optional<std::filesystem::path>, kCascBuckets> newest;
     std::optional<std::uint16_t> last_archive;
     for (const auto& item : std::filesystem::directory_iterator(directory_)) {
+        if (item.is_symlink()) throw std::runtime_error("symlink inside CASC storage: " + item.path().string());
         if (!item.is_regular_file()) continue;
         const auto name = item.path().filename().string();
         if (name.size() == 14 && name.compare(10, 4, ".idx") == 0 && is_hex_hash(name.substr(0, 10), 5)) {
@@ -280,13 +259,12 @@ void CascStorage::open() {
             if (!std::filesystem::exists(path, error)) continue;
             const std::uint64_t file_size = std::filesystem::file_size(path, error);
             if (error) continue;
-            std::ifstream input(path, std::ios::binary);
+            auto input = file_safety::open_file(path, O_RDWR);
             std::uint64_t offset = 0;
             std::vector<std::uint8_t> header(kCascDataHeaderSize);
             while (offset + kCascDataHeaderSize <= file_size) {
-                input.seekg(static_cast<std::streamoff>(offset));
-                input.read(reinterpret_cast<char*>(header.data()), static_cast<std::streamsize>(header.size()));
-                if (!input) break;
+                if (::pread(input.get(), header.data(), header.size(), static_cast<off_t>(offset)) !=
+                    static_cast<ssize_t>(header.size())) break;
                 const std::uint32_t total = get_u32le(header, 0x10);
                 const std::uint32_t checksum = get_u32le(header, 0x16);
                 if (total < kCascDataHeaderSize || offset + total > file_size ||
@@ -304,8 +282,7 @@ void CascStorage::open() {
                 }
                 offset += total;
             }
-            input.close();
-            if (offset < file_size) std::filesystem::resize_file(path, offset, error);
+            if (offset < file_size && ::ftruncate(input.get(), static_cast<off_t>(offset)) != 0) file_safety::fail(path);
             if (archive == *last_archive) current_offset_ = offset;
         }
     }
@@ -355,8 +332,10 @@ bool CascStorage::append(const std::string& encoding_key_hex, const std::vector<
                                                 current_archive_, offset);
 
     const auto path = archive_path(current_archive_);
-    std::FILE* file = std::fopen(path.c_str(), std::filesystem::exists(path) ? "r+b" : "w+b");
+    auto descriptor = file_safety::open_file(path, O_RDWR | O_CREAT);
+    std::FILE* file = ::fdopen(descriptor.get(), "r+b");
     if (file == nullptr) throw std::runtime_error("cannot open CASC archive: " + path.string());
+    (void)descriptor.release(); // fclose owns the descriptor now
     bool ok = std::fseek(file, static_cast<long>(offset), SEEK_SET) == 0 &&
               std::fwrite(header.data(), 1, header.size(), file) == header.size() &&
               (encoded.empty() || std::fwrite(encoded.data(), 1, encoded.size(), file) == encoded.size()) &&
@@ -417,12 +396,16 @@ void CascStorage::commit() {
 
 std::vector<std::uint8_t> CascStorage::read(const CascEntry& entry) const {
     if (entry.size < kCascDataHeaderSize) throw std::runtime_error("CASC entry smaller than its header");
-    std::ifstream input(archive_path(entry.archive), std::ios::binary);
-    if (!input) throw std::runtime_error("cannot open CASC archive " + archive_file_name(entry.archive));
-    input.seekg(entry.offset);
+    auto input = file_safety::open_file(archive_path(entry.archive), O_RDONLY);
     std::vector<std::uint8_t> block(entry.size);
-    input.read(reinterpret_cast<char*>(block.data()), static_cast<std::streamsize>(block.size()));
-    if (!input) throw std::runtime_error("short read from CASC archive " + archive_file_name(entry.archive));
+    std::size_t read = 0;
+    while (read < block.size()) {
+        const auto count = ::pread(input.get(), block.data() + read, block.size() - read,
+                                    static_cast<off_t>(entry.offset) + static_cast<off_t>(read));
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) throw std::runtime_error("short read from CASC archive " + archive_file_name(entry.archive));
+        read += static_cast<std::size_t>(count);
+    }
     for (std::size_t i = 0; i < kCascKeyBytes; ++i) {
         if (block[15 - i] != entry.key[i]) throw std::runtime_error("CASC data header key mismatch");
     }

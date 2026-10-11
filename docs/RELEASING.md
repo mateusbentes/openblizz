@@ -66,6 +66,29 @@ A user can pin a known release with:
 bash /tmp/install-openblizz.sh --version v0.1.0
 ```
 
+## Pre-tag validation gate
+
+Before tagging a candidate with downloader/filesystem changes:
+
+1. Keep the source diff clean (`git diff --check`) and review the exact commit.
+2. Run all registered tests in Debug and Release; run ASan/UBSan on the Linux
+   development host. The tests undefine `NDEBUG`, so Release assertions are
+   active. Linux registers core, third-party synthetic, HTTP loopback and
+   filesystem-safety suites. Loopback tests need local socket access but no
+   external services or credentials.
+3. Push the candidate to `main` and require successful x86_64 **and** AArch64
+   build/test jobs before tagging that same source. A green older commit is
+   not evidence for unpushed corrections.
+4. Check the installer/workflow asset names, SHA256SUMS generation and
+   replacement behavior on checksum/download failures.
+5. Keep known product/runtime limitations in the release notes. A public
+   `plan` or synthetic downloader test is not proof of complete real-game
+   installation, gameplay, or all-distribution compatibility. Third-party
+   downloads remain experimental where no full installation was tested.
+6. After publication, download and verify both assets against SHA256SUMS;
+   smoke-test the matching-architecture client. These post-publication checks
+   cannot be completed before the new assets exist.
+
 ## Release asset contract
 
 The installer and workflow must continue to agree on these exact names:

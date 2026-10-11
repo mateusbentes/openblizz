@@ -115,6 +115,13 @@ and direct-object fallback when an archive request fails. This verifies the
 transport contract through dependency injection, not live libcurl networking
 or real-game entitlement services.
 
+On Linux, `openblizz_http_tests` separately uses real libcurl with a temporary
+loopback HTTP server. It checks `206`, exact `Content-Range`/body size,
+case-insensitive headers, redirects, incorrect/absent ranges, oversized and
+short bodies, and offset overflow. Range buffering is capped at the requested
+size, and HTTP content compression is not accepted for encoded archive
+offsets. These are local transport tests, not live CDN/TLS or entitlement tests.
+
 Additional synthetic regressions put IN and EN manifests only in an archive:
 planning resolves them by range, installation and verification succeed, and
 the index is not fetched twice. Missing EKeys and corrupt decoded manifests

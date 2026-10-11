@@ -65,7 +65,7 @@ Release workflow builds x86_64 on `ubuntu-24.04` and AArch64 on
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
-ctest --test-dir build --output-on-failure   # unit tests, ~0.1 s, no network
+ctest --test-dir build --output-on-failure   # synthetic + Linux loopback tests; no external network
 ./build/openblizz --help
 ```
 
@@ -74,7 +74,7 @@ CMake options:
 | Option | Default | Meaning |
 |---|---|---|
 | `CMAKE_BUILD_TYPE` | (empty) | `Release` for an optimised binary, `Debug` for symbols |
-| `OPENBLIZZ_BUILD_TESTS` | `ON` | build and register core and third-party integration tests with CTest; both use synthetic fixtures and need no network |
+| `OPENBLIZZ_BUILD_TESTS` | `ON` | register core and third-party synthetic tests; Linux also registers libcurl HTTP Range tests against a temporary loopback server. No external network or credentials are needed |
 | `CMAKE_INSTALL_PREFIX` | `/usr/local` | where `cmake --install build` puts `bin/openblizz` |
 | `CMAKE_CXX_COMPILER` | system default | e.g. `clang++` |
 
@@ -275,7 +275,7 @@ does not make a Windows build generally supported.
 ## Verifying the build
 
 ```bash
-ctest --test-dir build --output-on-failure      # parsers, hashes, TVFS, CASC, shop/account JSON
+ctest --test-dir build --output-on-failure      # 4 suites on Linux: core, third-party pipeline, loopback HTTP Range, file safety
 ./build/openblizz products                      # offline: curated catalog
 ./build/openblizz versions w3                   # network: Ribbit
 ./build/openblizz plan w3 --no-data             # network: manifests; no game-directory data written (cache may warm)
@@ -288,6 +288,9 @@ cmake -S . -B build-debug -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMAN
 cmake --build build-debug -j"$(nproc)"
 ./build-debug/openblizz_tests
 ./build-debug/openblizz_thirdparty_tests
+./build-debug/openblizz_http_tests                # Linux only: loopback libcurl Range tests
+./build-debug/openblizz_file_safety_tests         # Linux only: symlink/no-follow/path regressions
+ctest --test-dir build-debug --output-on-failure
 ```
 
 Warnings are enabled (`-Wall -Wextra -Wpedantic`) for `openblizz_core`; the

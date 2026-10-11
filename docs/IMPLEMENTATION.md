@@ -33,7 +33,9 @@ before use.
 
 `HttpClient` wraps libcurl: plain GET for configs and manifests, Range GET
 for archive-backed objects (neighbouring objects are coalesced into ≤ 32 MiB
-requests). The current browser automation uses loopback WebSocket connections
+requests). Range responses must be `206` with the exact requested
+`Content-Range` and byte count, without HTTP content compression; buffering
+is capped at the requested size. The current browser automation uses loopback WebSocket connections
 for WebDriver BiDi/CDP; `HttpClient::post()` is a generic client capability and
 is not the login handshake. Hosts in the selected CDN record are tried in turn
 before a download is declared failed.
@@ -95,13 +97,25 @@ rename) after MD5 verification, and streams every TVFS object into
 `Data/data/data.NNN` archives (30-byte header: reversed EKey, size, Jenkins
 checksum A, checksum B), 16 bucketed version-7 `.idx` journals,
 `Data/config/xx/yy/<hash>`, `Data/indices/<hash>.index` and `.build.info`.
-Storage reopens and resumes, so interrupted installs continue; `verify`
+Storage reopens and resumes; indexed objects are checked for encoded size,
+EKey/header and every encoded chunk checksum before reuse. Damaged journal
+entries are removed so only those objects need to be fetched again. `verify`
 hashes selected install-manifest files, checks `.build.info` and `Data/config`
 for presence, and checks planned CASC objects by presence/size (`--deep`
-re-hashes only the plan's `data_objects`). `repair` runs the non-deep
-verification pass, removes journal
-entries for CASC objects reported with size failures, and downloads the
+checks EKey and encoded chunk integrity for the plan's `data_objects`). `repair`
+runs the deep verification pass, removes journal entries for damaged CASC
+objects, and downloads the
 selected missing or broken data again.
+
+On the supported Linux/POSIX path, installation/cache/CASC I/O opens directory
+components with `openat` and `O_NOFOLLOW`. Atomic replacement uses a unique
+`O_EXCL` temporary and `renameat` in the opened parent; unsafe symlink paths
+are refused, not followed. CASC in-place writes also reject hard-linked archive
+files. Manifest paths reject traversal, drive/ADS components, Win32 device
+names and trailing-dot/space aliases. This is not a claim of a tested Windows
+reparse-point implementation or protection from an adversary controlling the
+same user's entire filesystem. Use real directories rather than symlinked
+installation/cache paths.
 
 ## Account layer
 
@@ -179,6 +193,14 @@ are plain `assert()` based and need no network. `openblizz_thirdparty_tests`
 additionally exercises Installer plan/install/verify/repair through an in-memory
 transport, dynamic id resolution, manifest integrity and error handling,
 completed-file reuse and repair from cache. See [THIRD_PARTY.md](THIRD_PARTY.md)
-for the precise coverage. Real HttpClient networking, gameplay, Runner
-execution and every product-specific storage/runtime variant are not covered
-end to end by CTest.
+for the precise coverage. On Linux, `openblizz_http_tests` exercises real
+libcurl against a loopback HTTP fixture, including valid ranges, redirects,
+incorrect intervals/status, missing headers, short/oversized bodies and
+offset overflow. No external service or credentials are needed. Live CDN/TLS
+integration, gameplay, Runner execution and every product-specific
+storage/runtime variant are not covered end to end by CTest.
+
+Linux also registers `openblizz_file_safety_tests`: directory/file symlink
+refusal, hard-linked CASC archive refusal, unsafe Windows names and exclusive
+temporaries. All test executables undefine `NDEBUG` before `<cassert>`, so
+their assertions remain active in Release builds.

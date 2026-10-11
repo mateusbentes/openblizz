@@ -281,18 +281,23 @@ DIR/
 ```
 
 Completed install-manifest files are hashed and skipped when valid (the
-`already verified` label). Completed CASC objects found in the local index are
-counted as `already stored`; interrupted unindexed records can be salvaged.
+`already verified` label). Indexed CASC objects are checked for encoded size,
+EKey and encoded chunk checksums before being counted as `already stored`;
+interrupted unindexed records can be salvaged and checked the same way.
 Rerunning the same install reuses them. Archive-backed content uses HTTP Range,
 but a failed partial object is not promised byte-by-byte resume.
 
 **Resume and failure handling.** `install` is idempotent: every CASC object
 already present in `Data/data` (indexed by the `.idx` journals, or recovered
-from the archives on start-up if a previous run was interrupted) is skipped,
+from the archives on start-up if a previous run was interrupted) is revalidated
+before reuse. Damaged entries are forgotten and downloaded again; good objects
+are retained. This requires reading existing encoded data from disk, not
+downloading it again. The validation does not require decryption keys or
+materialize decoded game assets. The
 journals are flushed every 256 MiB, archive range requests are retried three
 times before falling back to per-object downloads, and objects that still fail
 are reported at the end instead of aborting the run. Re-running the same
-command finishes the job.
+command retries unfinished work; persistent CDN/metadata failures may remain.
 
 ### `openblizz update <product> --directory DIR [--region us] [--locale enUS] [--jobs 4] [--cookie-jar PATH] [--library-file PATH]`
 
@@ -310,17 +315,20 @@ Checks the installation against the current build:
   the plan's `data_objects` list are checked through the `.idx` files (fast,
   mostly metadata);
 - `--deep`: additionally re-hashes only the CASC objects in
-  `plan.data_objects`; it does not sweep unrelated objects elsewhere in the
+  `plan.data_objects`, including encoded chunk checksums and exact BLTE
+  structure; it does not sweep unrelated objects elsewhere in the
   CASC store (about 35 GB for W3 enUS).
 
 Prints one line per problem and exits `2` when anything is wrong, `0` otherwise.
 
 ### `openblizz repair <product> --directory DIR [--region us] [--locale enUS] [--jobs 4] [--cookie-jar PATH] [--library-file PATH]`
 
-Runs the normal (non-deep) verification pass and re-downloads install-manifest
-files that fail their content check plus CASC objects that are missing or have
-a size mismatch. It does not hash every CASC object; use `verify --deep` first
-when you need a full content-integrity audit. It prints `Files repaired: N`.
+Runs the deep verification pass for this plan and repairs install-manifest
+files that fail their content check plus CASC objects with missing, unreadable,
+size-mismatched or corrupt encoded content. This reads the planned CASC objects
+from disk and may take longer than plain `verify`; it does not sweep unrelated
+objects or test game behavior. Valid installed files and objects are reused.
+It prints `Files repaired: N`.
 
 ---
 
